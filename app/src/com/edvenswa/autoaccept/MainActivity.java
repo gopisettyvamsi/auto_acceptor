@@ -42,10 +42,11 @@ public class MainActivity extends Activity {
         {"Rapido", "com.rapido.rider,com.rapido.captain"},
         {"Uber Driver", "com.ubercab.driver"},
         {"Ola Driver", "com.olacabs.oladriver"}};
-    static final String[] LANGS = {"en", "hi", "te"};
+    static {
+        I18n.a("Show trip details after accepting", "स्वीकार करने के बाद यात्रा विवरण दिखाएं", "అంగీకరించిన తరువాత ట్రిప్ వివరాలు చూపించు");
+    }
+    static final String[] LANGS ={"en", "hi", "te"};
     static final String[] LANG_NAMES = {"English", "हिन्दी", "తెలుగు"};
-    // name, minimum fare, maximum pickup km, minimum earnings per km
-    static final String[][] PROFILES = {{"Relaxed", "0", "0", "0"}, {"Peak", "40", "3", "8"}, {"Night", "50", "2.5", "9"}};
 
     // palette: one accent, neutral greys
     static final int ACCENT = 0xFF1F4FD8, ACCENT_SOFT = 0xFFEAF0FF, BG = 0xFFF4F5F8, SURFACE = Color.WHITE,
@@ -71,6 +72,28 @@ public class MainActivity extends Activity {
 
     /** Whole numbers without decimals, otherwise one decimal. */
     static String n(double v) { return v == Math.rint(v) ? String.valueOf((long) v) : String.format(Locale.US, "%.1f", v); }
+
+    // Distance unit for the filters and for display: kilometers (default) or meters. Everything is stored in km.
+    static boolean meters(SharedPreferences sp) { return "m".equals(sp.getString("dist_unit", "km")); }
+    static String unitName(SharedPreferences sp) { return meters(sp) ? "m" : "km"; }
+    static double toUi(SharedPreferences sp, double km) { return meters(sp) ? km * 1000 : km; }
+    static double fromUi(SharedPreferences sp, double v) { return meters(sp) ? v / 1000 : v; }
+
+    /** At most dp decimals, no trailing zeros. */
+    static String num(double v, int dp) {
+        String s = String.format(Locale.US, "%." + dp + "f", v);
+        return s.contains(".") ? s.replaceAll("0+$", "").replaceAll("\\.$", "") : s;
+    }
+    static String n2(double v) { return num(v, 2); }
+    static String n4(double v) { return num(v, 4); }
+    static String fmtDist(SharedPreferences sp, double km) { return meters(sp) ? Math.round(km * 1000) + " m" : n2(km) + " km"; }
+    static double parse(EditText e) { try { return Double.parseDouble(e.getText().toString()); } catch (Exception ex) { return 0; } }
+
+    void saveFilters(EditText[] f) {
+        sp.edit().putString("fare", f[0].getText().toString())
+            .putString("dist", n4(fromUi(sp, parse(f[1])))).putString("dropmax", n4(fromUi(sp, parse(f[2]))))
+            .putString("perkm", f[3].getText().toString()).apply();
+    }
 
     /** Earnings per km over the whole trip (pickup + drop); matches the Rapido chip. NaN if unknown. */
     static double perKm(double fare, Double pickup, Double drop) {
@@ -101,16 +124,9 @@ public class MainActivity extends Activity {
         return sp.getString("vehicle", "Bike");
     }
 
-    /** Target earnings per km for a ride type, plus the peak-hours bump when active. */
+    /** Target earnings per km for a ride type. */
     static double targetFor(SharedPreferences sp, String type) {
-        double base = pref(sp, "target_" + type, pref(sp, "target", 8));
-        if (sp.getBoolean("peak_on", false)) {
-            int hr = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-            int from = (int) pref(sp, "peak_from", 17), to = (int) pref(sp, "peak_to", 21);
-            boolean inPeak = from <= to ? hr >= from && hr < to : hr >= from || hr < to;
-            if (inPeak) base += pref(sp, "peak_plus", 2);
-        }
-        return base;
+        return pref(sp, "target_" + type, pref(sp, "target", 8));
     }
 
     /** 2 = worth it, 1 = average, 0 = low, relative to the user's target. */
@@ -479,7 +495,7 @@ public class MainActivity extends Activity {
             String money = "₹" + Math.round(x.fare);
             label(c, Double.isNaN(pk) ? money : money + "  ·  ₹" + String.format(Locale.US, "%.2f", pk) + "/km", 16, TEXT, "sans-serif-medium", 0);
             label(c, x.app + "  ·  " + L(x.type) + "  ·  " + f.format(new Date(x.t)), 13, SUBTLE, "sans-serif", 2);
-            if (!Double.isNaN(pk)) label(c, n(Math.rint(x.km() * 10) / 10) + " km  ·  " + L("fuel") + " ₹" + Math.round(fuel)
+            if (!Double.isNaN(pk)) label(c, fmtDist(sp, x.km()) + "  ·  " + L("fuel") + " ₹" + Math.round(fuel)
                 + "  ·  " + L("you keep") + " ₹" + Math.round(keep), 13, SUBTLE, "sans-serif", 0);
             r.addView(c, weight());
             if (!Double.isNaN(pk)) r.addView(chip(verdict(pk, targetFor(sp, x.type))));
@@ -731,45 +747,198 @@ public class MainActivity extends Activity {
     }
 
     // ---------- first-run setup ----------
+    static {
+        I18n.a("Choose your language", "अपनी भाषा चुनें", "మీ భాషను ఎంచుకోండి");
+        I18n.a("Know which rides are worth it. Accept the right ones automatically.", "जानें कौन सी राइड फायदेमंद है। सही राइड अपने आप स्वीकार करें।", "ఏ రైడ్‌లు లాభదాయకమో తెలుసుకోండి. సరైనవాటిని ఆటోమేటిక్‌గా అంగీకరించండి.");
+        I18n.a("Continue", "जारी रखें", "కొనసాగించండి");
+        I18n.a("Back", "वापस", "వెనుకకు");
+        I18n.a("Get started", "शुरू करें", "ప్రారంభించండి");
+        I18n.a("Step %s of %s", "चरण %s / %s", "దశ %s / %s");
+        I18n.a("Your vehicle", "आपका वाहन", "మీ వాహనం");
+        I18n.a("We use this to estimate fuel cost and profit on every ride.", "हम इसका उपयोग हर राइड पर ईंधन खर्च और मुनाफा आंकने में करते हैं।", "ప్రతి రైడ్‌పై ఇంధన ఖర్చు, లాభం అంచనా వేయడానికి దీన్ని వాడతాం.");
+        I18n.a("%s km per litre", "%s किमी प्रति लीटर", "లీటరుకు %s కిమీ");
+        I18n.a("Enable accessibility", "एक्सेसिबिलिटी चालू करें", "యాక్సెసిబిలిటీని ఆన్ చేయండి");
+        I18n.a("Vamsify reads ride requests on screen to rate them and, if you choose, accept them. Nothing leaves your phone.", "Vamsify स्क्रीन पर राइड रिक्वेस्ट पढ़कर उन्हें रेट करता है और आप चाहें तो स्वीकार भी करता है। कुछ भी आपके फ़ोन से बाहर नहीं जाता।", "Vamsify స్క్రీన్‌పై రైడ్ రిక్వెస్ట్‌లను చదివి రేట్ చేస్తుంది, మీరు కోరితే అంగీకరిస్తుంది. ఏదీ మీ ఫోన్ దాటి వెళ్లదు.");
+        I18n.a("Tap the button below and open Installed apps.", "नीचे का बटन दबाएँ और इंस्टॉल्ड ऐप्स खोलें।", "క్రింది బటన్ నొక్కి ఇన్‌స్టాల్ చేసిన యాప్‌లు తెరవండి.");
+        I18n.a("Choose Vamsify and switch it on.", "Vamsify चुनें और इसे चालू करें।", "Vamsify ఎంచుకుని ఆన్ చేయండి.");
+        I18n.a("If it is greyed out, open App info, tap the menu at the top right and choose Allow restricted settings, then try again.", "अगर यह ग्रे है, तो ऐप इंफ़ो खोलें, ऊपर दाएँ मेनू पर टैप करें और Allow restricted settings चुनें, फिर से कोशिश करें।", "గ్రే అయితే, యాప్ ఇన్ఫో తెరిచి, పై కుడి మెనూ నొక్కి Allow restricted settings ఎంచుకుని మళ్లీ ప్రయత్నించండి.");
+        I18n.a("Service is on", "सेवा चालू है", "సేవ ఆన్‌లో ఉంది");
+        I18n.a("Service is not on yet", "सेवा अभी चालू नहीं है", "సేవ ఇంకా ఆన్ కాలేదు");
+        I18n.a("You can also do this later from Home.", "आप यह बाद में होम से भी कर सकते हैं।", "దీన్ని తర్వాత హోమ్ నుండి కూడా చేయవచ్చు.");
+    }
+
+    static final int ONB_STEPS = 4; // language, vehicle and fuel, service, driver apps
+
+    void logoInto(ImageView v) {
+        try (java.io.InputStream in = getAssets().open("logo.png")) {
+            v.setImageBitmap(android.graphics.BitmapFactory.decodeStream(in));
+        } catch (java.io.IOException ex) { /* name only */ }
+    }
+
+    /** A large selectable card (radio style): title, optional subtitle, check mark on the right. */
+    void choice(LinearLayout parent, String title, String sub, boolean selected, Runnable onTap) {
+        LinearLayout c = row();
+        c.setPadding(dp(16), dp(14), dp(16), dp(14));
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(selected ? ACCENT_SOFT : SURFACE);
+        g.setCornerRadius(dp(14));
+        g.setStroke(dp(selected ? 2 : 1), selected ? ACCENT : LINE);
+        c.setBackground(g);
+        LinearLayout t = col();
+        label(t, title, 18, TEXT, "sans-serif-medium", 0);
+        if (sub != null) label(t, sub, 13, SUBTLE, "sans-serif", 2);
+        c.addView(t, weight());
+        ImageView mark = new ImageView(this);
+        mark.setImageResource(R.drawable.ic_check_circle);
+        mark.setColorFilter(selected ? ACCENT : LINE);
+        c.addView(mark, new LinearLayout.LayoutParams(dp(26), dp(26)));
+        c.setOnClickListener(v -> onTap.run());
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(10);
+        parent.addView(c, lp);
+    }
+
+    void numbered(LinearLayout parent, int n, String text, int top) {
+        LinearLayout r = row();
+        TextView num = tv(String.valueOf(n), 14, ACCENT, "sans-serif-medium");
+        num.setGravity(Gravity.CENTER);
+        num.setBackground(shape(ACCENT_SOFT, 14, 0));
+        r.addView(num, new LinearLayout.LayoutParams(dp(28), dp(28)));
+        TextView t = tv(text, 15, TEXT, "sans-serif");
+        t.setPadding(dp(12), 0, 0, 0);
+        r.addView(t, weight());
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(top);
+        parent.addView(r, lp);
+    }
+
     void onboard() {
         bottom.setVisibility(View.GONE);
-        LinearLayout r = newPage();
+        content.removeAllViews();
         int num = InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL;
-        label(r, F("Step %s of 3", step + 1), 13, SUBTLE, "sans-serif-medium", 0);
+        LinearLayout shell = col();
+        shell.setBackgroundColor(BG);
+
+        // top bar: brand and progress
+        LinearLayout top = col();
+        top.setPadding(dp(20), dp(18), dp(20), dp(6));
+        LinearLayout brand = row();
+        ImageView mini = new ImageView(this);
+        logoInto(mini);
+        brand.addView(mini, new LinearLayout.LayoutParams(dp(28), dp(28)));
+        TextView wordmark = tv("Vamsify", 17, TEXT, "sans-serif-medium");
+        wordmark.setPadding(dp(10), 0, 0, 0);
+        brand.addView(wordmark);
+        top.addView(brand);
+        LinearLayout bar = row();
+        for (int s = 0; s < ONB_STEPS; s++) {
+            View seg = new View(this);
+            seg.setBackground(shape(s <= step ? ACCENT : LINE, 2, 0));
+            LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(0, dp(4), 1);
+            if (s > 0) sl.leftMargin = dp(6);
+            bar.addView(seg, sl);
+        }
+        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(-1, -2);
+        bl.topMargin = dp(16);
+        top.addView(bar, bl);
+        label(top, F("Step %s of %s", step + 1, ONB_STEPS), 12, SUBTLE, "sans-serif-medium", 8);
+        shell.addView(top);
+
+        // scrolling body
+        ScrollView sv = new ScrollView(this);
+        LinearLayout body = col();
+        body.setPadding(dp(20), dp(12), dp(20), dp(24));
+        sv.addView(body);
+        shell.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        final Runnable[] next = new Runnable[1];
+        String cta = "Continue";
         if (step == 0) {
-            label(r, "Welcome to Vamsify", 26, TEXT, "sans-serif-medium", 8);
-            label(r, "Tell us about your vehicle so we can estimate fuel cost and profit on every ride.", 15, SUBTLE, "sans-serif", 6);
-            label(r, "Language", 14, TEXT, "sans-serif-medium", 24);
-            segmented(r, LANG_NAMES, Arrays.asList(LANGS).indexOf(sp.getString("lang", "en")), 8,
-                i -> { sp.edit().putString("lang", LANGS[i]).apply(); recreate(); });
-            label(r, "My vehicle", 14, TEXT, "sans-serif-medium", 20);
-            segmented(r, VNAMES, Math.max(0, Arrays.asList(TYPES).indexOf(sp.getString("vehicle", "Bike"))), 8,
-                i -> sp.edit().putString("vehicle", TYPES[i]).apply());
-            EditText fuel = field(r, "Fuel price (₹ per litre)", "Current fuel price in your city.", sp.getString("petrol", "105"), num, 20);
-            button(r, "Next", true, 28).setOnClickListener(v -> { sp.edit().putString("petrol", fuel.getText().toString()).apply(); step = 1; onboard(); });
+            ImageView hero = new ImageView(this);
+            logoInto(hero);
+            LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(dp(92), dp(92));
+            hl.gravity = Gravity.CENTER_HORIZONTAL;
+            hl.topMargin = dp(8);
+            body.addView(hero, hl);
+            label(body, "Welcome to Vamsify", 28, TEXT, "sans-serif-medium", 20).setGravity(Gravity.CENTER);
+            label(body, "Know which rides are worth it. Accept the right ones automatically.", 15, SUBTLE, "sans-serif", 8).setGravity(Gravity.CENTER);
+            label(body, "Choose your language", 13, SUBTLE, "sans-serif-medium", 32);
+            String cur = sp.getString("lang", "en");
+            for (int i = 0; i < LANGS.length; i++) {
+                final int idx = i;
+                choice(body, LANG_NAMES[i], null, LANGS[i].equals(cur), () -> {
+                    sp.edit().putString("lang", LANGS[idx]).apply();
+                    recreate(); // redraws the whole flow in the chosen language
+                });
+            }
+            next[0] = () -> { step = 1; onboard(); };
         } else if (step == 1) {
-            label(r, "Turn on the service", 26, TEXT, "sans-serif-medium", 8);
-            label(r, "Vamsify needs Accessibility access to read ride requests and show the earnings chip.", 15, SUBTLE, "sans-serif", 6);
-            LinearLayout c = card(r, 20);
-            label(c, "1. Tap the button below and open Installed apps.", 15, TEXT, "sans-serif", 0);
-            label(c, "2. Choose Vamsify and switch it on.", 15, TEXT, "sans-serif", 10);
-            label(c, "3. If it is greyed out: open App info, tap the menu at the top right and choose Allow restricted settings, then try again.", 15, TEXT, "sans-serif", 10);
-            button(r, "Open Accessibility settings", false, 20).setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
-            label(r, AcceptService.connected ? "Service is running." : "Service is not on yet. You can also do this later from Home.", 13,
-                AcceptService.connected ? OK : SUBTLE, "sans-serif", 10);
-            button(r, "Next", true, 20).setOnClickListener(v -> { step = 2; onboard(); });
+            label(body, "Your vehicle", 26, TEXT, "sans-serif-medium", 8);
+            label(body, "We use this to estimate fuel cost and profit on every ride.", 15, SUBTLE, "sans-serif", 6);
+            final EditText[] fuel = new EditText[1];
+            String curV = sp.getString("vehicle", "Bike");
+            for (int i = 0; i < TYPES.length; i++) {
+                final int idx = i;
+                choice(body, L(VNAMES[i]), F("%s km per litre", n(pref(sp, "mile_" + TYPES[i], DEF_MILEAGE[i]))), TYPES[i].equals(curV), () -> {
+                    if (fuel[0] != null) sp.edit().putString("petrol", fuel[0].getText().toString()).apply(); // keep what was typed
+                    sp.edit().putString("vehicle", TYPES[idx]).apply();
+                    onboard();
+                });
+            }
+            fuel[0] = field(body, "Fuel price (₹ per litre)", "Current fuel price in your city.", sp.getString("petrol", "105"), num, 24);
+            next[0] = () -> { sp.edit().putString("petrol", fuel[0].getText().toString()).apply(); step = 2; onboard(); };
+        } else if (step == 2) {
+            label(body, "Enable accessibility", 26, TEXT, "sans-serif-medium", 8);
+            label(body, "Vamsify reads ride requests on screen to rate them and, if you choose, accept them. Nothing leaves your phone.", 15, SUBTLE, "sans-serif", 6);
+            boolean on = AcceptService.connected;
+            LinearLayout st = card(body, 20);
+            LinearLayout sr = row();
+            sr.addView(badge(on ? R.drawable.ic_check_circle : R.drawable.ic_error, on ? 0xFFE3F4EA : 0xFFFCE8E6, on ? OK : WARN, 40, 0));
+            LinearLayout sc = col();
+            sc.setPadding(dp(12), 0, 0, 0);
+            label(sc, on ? "Service is on" : "Service is not on yet", 16, TEXT, "sans-serif-medium", 0);
+            if (!on) label(sc, "You can also do this later from Home.", 12, SUBTLE, "sans-serif", 0);
+            sr.addView(sc, weight());
+            st.addView(sr);
+            LinearLayout steps = card(body, 12);
+            numbered(steps, 1, L("Tap the button below and open Installed apps."), 0);
+            numbered(steps, 2, L("Choose Vamsify and switch it on."), 14);
+            numbered(steps, 3, L("If it is greyed out, open App info, tap the menu at the top right and choose Allow restricted settings, then try again."), 14);
+            button(body, "Open Accessibility settings", false, 16).setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+            next[0] = () -> { step = 3; onboard(); };
         } else {
-            label(r, "Choose your driver apps", 26, TEXT, "sans-serif-medium", 8);
-            label(r, "Vamsify only works inside the apps you select.", 15, SUBTLE, "sans-serif", 6);
-            LinearLayout c = card(r, 20);
-            CheckBox[] boxes = appChecks(c);
-            button(r, "Start", true, 28).setOnClickListener(v -> {
+            label(body, "Choose your driver apps", 26, TEXT, "sans-serif-medium", 8);
+            label(body, "Vamsify only works inside the apps you select.", 15, SUBTLE, "sans-serif", 6);
+            LinearLayout c = card(body, 20);
+            final CheckBox[] boxes = appChecks(c);
+            cta = "Get started";
+            next[0] = () -> {
                 sp.edit().putString("pkgs", pkgsFrom(boxes)).putBoolean("onboarded", true).apply();
                 askNotificationPermission();
                 scheduleSummary(this);
                 show(0);
-            });
+            };
         }
+
+        // pinned footer: primary action, and Back from step 2 on
+        LinearLayout footWrap = col();
+        View rule = new View(this);
+        rule.setBackgroundColor(LINE);
+        footWrap.addView(rule, new LinearLayout.LayoutParams(-1, dp(1)));
+        LinearLayout foot = col();
+        foot.setBackgroundColor(SURFACE);
+        foot.setPadding(dp(20), dp(12), dp(20), dp(12));
+        button(foot, cta, true, 0).setOnClickListener(v -> next[0].run());
+        if (step > 0) {
+            TextView back = tv("Back", 15, ACCENT, "sans-serif-medium");
+            back.setGravity(Gravity.CENTER);
+            back.setPadding(0, dp(12), 0, dp(4));
+            back.setOnClickListener(v -> { step--; onboard(); });
+            foot.addView(back, new LinearLayout.LayoutParams(-1, -2));
+        }
+        footWrap.addView(foot);
+        shell.addView(footWrap, new LinearLayout.LayoutParams(-1, -2));
+        content.addView(shell, new FrameLayout.LayoutParams(-1, -1));
     }
 
     // ---------- home ----------
@@ -823,24 +992,10 @@ public class MainActivity extends Activity {
     String profileInfo() {
         List<String> parts = new ArrayList<>();
         if (pref(sp, "fare", 0) > 0) parts.add(F("Min fare ₹%s", n(pref(sp, "fare", 0))));
-        if (pref(sp, "dist", 0) > 0) parts.add(F("Pickup up to %s km", n(pref(sp, "dist", 0))));
+        if (pref(sp, "dist", 0) > 0) parts.add(F("Pickup up to %s", fmtDist(sp, pref(sp, "dist", 0))));
+        if (pref(sp, "dropmax", 0) > 0) parts.add(F("Drop up to %s", fmtDist(sp, pref(sp, "dropmax", 0))));
         if (pref(sp, "perkm", 0) > 0) parts.add(F("At least ₹%s per km", n(pref(sp, "perkm", 0))));
         return parts.isEmpty() ? L("No limits set") : android.text.TextUtils.join("  ·  ", parts);
-    }
-
-    void profileCard(LinearLayout p) {
-        LinearLayout c = card(p, 16);
-        label(c, "Quick profile", 16, TEXT, "sans-serif-medium", 0);
-        TextView info = label(c, profileInfo(), 13, SUBTLE, "sans-serif", 4);
-        String cur = sp.getString("profile", "");
-        int sel = -1;
-        String[] names = new String[PROFILES.length];
-        for (int i = 0; i < PROFILES.length; i++) { names[i] = PROFILES[i][0]; if (names[i].equals(cur)) sel = i; }
-        segmented(c, names, sel, 12, i -> {
-            sp.edit().putString("fare", PROFILES[i][1]).putString("dist", PROFILES[i][2])
-                .putString("perkm", PROFILES[i][3]).putString("profile", PROFILES[i][0]).apply();
-            info.setText(profileInfo());
-        });
     }
 
     void home() {
@@ -947,7 +1102,7 @@ public class MainActivity extends Activity {
             c.setGravity(Gravity.CENTER_HORIZONTAL);
             c.addView(badge((Integer) a[1], SURFACE, ACCENT, 56, LINE));
             label(c, (String) a[0], 12, TEXT, "sans-serif-medium", 8).setGravity(Gravity.CENTER);
-            c.setOnClickListener(v -> show((Integer) a[2]));
+            c.setOnClickListener(v -> { settingsPage = "Filters".equals(a[0]) ? 0 : "Apps".equals(a[0]) ? 7 : -1; show((Integer) a[2]); });
             qa.addView(c, weight());
         }
         LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(-1, -2);
@@ -983,7 +1138,6 @@ public class MainActivity extends Activity {
         cr.addView(chipSw);
         sw.addView(cr);
 
-        profileCard(controls);
 
         Button sample = button(controls, "Try a sample ride", false, 16);
         sample.setOnClickListener(v -> {
@@ -1035,109 +1189,205 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ---------- settings ----------
-    void settings() {
+    // ---------- settings: a short menu, each group on its own one-screen page ----------
+    static final String[] SECTIONS = {"Ride filters", "Accept speed", "Earnings targets", "Vehicle & fuel", "Mileage",
+        "Goals & alerts", "Display & language", "Driver apps"};
+    static final int[] SECTION_ICONS = {R.drawable.ic_tune, R.drawable.ic_bolt, R.drawable.ic_trending_up, R.drawable.ic_car,
+        R.drawable.ic_wallet, R.drawable.ic_notifications, R.drawable.ic_settings, R.drawable.ic_check_circle};
+    static {
+        I18n.a("Accept speed", "स्वीकार की गति", "అంగీకార వేగం");
+        I18n.a("Mileage", "माइलेज", "మైలేజ్");
+        I18n.a("No goal", "कोई लक्ष्य नहीं", "లక్ష్యం లేదు");
+        I18n.a("Delay %s s", "देरी %s सेकंड", "ఆలస్యం %s సెకన్లు");
+        I18n.a("Instant within %s km", "%s किमी के भीतर तुरंत", "%s కిమీ లోపల వెంటనే");
+        I18n.a("Distance unit", "दूरी की इकाई", "దూరం యూనిట్");
+        I18n.a("Kilometers", "किलोमीटर", "కిలోమీటర్లు");
+        I18n.a("Meters", "मीटर", "మీటర్లు");
+        I18n.a("Maximum pickup distance (%s)", "अधिकतम पिकअप दूरी (%s)", "గరిష్ట పిక్‌అప్ దూరం (%s)");
+        I18n.a("Maximum drop distance (%s)", "अधिकतम ड्रॉप दूरी (%s)", "గరిష్ట డ్రాప్ దూరం (%s)");
+        I18n.a("Rides that go farther than this are skipped. Use 0 for no limit.", "इससे दूर जाने वाली राइड छोड़ दी जाती हैं। कोई सीमा नहीं के लिए 0 लिखें।", "దీని కంటే ఎక్కువ దూరం వెళ్లే రైడ్‌లు దాటవేయబడతాయి. పరిమితి లేకుండా 0 వాడండి.");
+        I18n.a("Instant-accept radius (%s)", "तत्काल स्वीकार दायरा (%s)", "తక్షణ అంగీకార పరిధి (%s)");
+        I18n.a("Pickup up to %s", "पिकअप %s तक", "పిక్‌అప్ %s వరకు");
+        I18n.a("Drop up to %s", "ड्रॉप %s तक", "డ్రాప్ %s వరకు");
+        I18n.a("Instant within %s", "%s के भीतर तुरंत", "%s లోపల వెంటనే");
+        I18n.a("Off", "बंद", "ఆఫ్");
+    }
+
+    int settingsPage = -1; // -1 = menu
+
+    void settings() { if (settingsPage < 0) settingsMenu(); else settingsSection(settingsPage); }
+
+    String sectionSummary(int i) {
+        switch (i) {
+            case 0: return profileInfo();
+            case 1: {
+                String s = F("Delay %s s", n(pref(sp, "delay", 300) / 1000));
+                double near = pref(sp, "near", 0);
+                return near > 0 ? s + "  ·  " + F("Instant within %s", fmtDist(sp, near)) : s;
+            }
+            case 2: {
+                double t = pref(sp, "target", 8);
+                return L("Bike") + " ₹" + n(pref(sp, "target_Bike", t)) + "  ·  " + L("Auto") + " ₹" + n(pref(sp, "target_Auto", t))
+                    + "  ·  " + L("Car") + " ₹" + n(pref(sp, "target_Car", t));
+            }
+            case 3: return L(VNAMES[Math.max(0, Arrays.asList(TYPES).indexOf(sp.getString("vehicle", "Bike")))]) + "  ·  ₹" + n(pref(sp, "petrol", 105)) + "/L";
+            case 4: return n(pref(sp, "mile_Bike", 45)) + "  ·  " + n(pref(sp, "mile_Auto", 25)) + "  ·  " + n(pref(sp, "mile_Car", 15)) + " km/L";
+            case 5: return pref(sp, "goal", 0) > 0 ? "₹" + n(pref(sp, "goal", 0)) + " / " + L("Daily goal").toLowerCase() : L("No goal");
+            case 6: return LANG_NAMES[Math.max(0, Arrays.asList(LANGS).indexOf(sp.getString("lang", "en")))];
+            default: {
+                List<String> on = new ArrayList<>();
+                for (String[] a : APPS) if (sp.getString("pkgs", DEFAULT_PKGS).contains(a[1].split(",")[0])) on.add(a[0]);
+                return android.text.TextUtils.join(", ", on);
+            }
+        }
+    }
+
+    void settingsMenu() {
         LinearLayout root = newPage();
         label(root, "Settings", 24, TEXT, "sans-serif-medium", 0);
         label(root, "Choose which rides are accepted.", 14, SUBTLE, "sans-serif", 4);
+        LinearLayout c = card(root, 16);
+        c.setPadding(dp(16), dp(4), dp(16), dp(4));
+        for (int i = 0; i < SECTIONS.length; i++) {
+            final int idx = i;
+            if (i > 0) divider(c, 0);
+            LinearLayout r = row();
+            r.setPadding(0, dp(10), 0, dp(10));
+            r.addView(badge(SECTION_ICONS[i], ACCENT_SOFT, ACCENT, 38, 0));
+            LinearLayout t = col();
+            t.setPadding(dp(12), 0, dp(8), 0);
+            label(t, SECTIONS[i], 15, TEXT, "sans-serif-medium", 0);
+            label(t, sectionSummary(i), 12, SUBTLE, "sans-serif", 0);
+            r.addView(t, weight());
+            ImageView chev = new ImageView(this);
+            chev.setImageResource(R.drawable.ic_chevron_right);
+            chev.setColorFilter(SUBTLE);
+            r.addView(chev, new LinearLayout.LayoutParams(dp(24), dp(24)));
+            r.setOnClickListener(v -> { settingsPage = idx; settings(); });
+            c.addView(r, new LinearLayout.LayoutParams(-1, -2));
+        }
+    }
+
+    void settingsSection(int i) {
+        LinearLayout root = newPage();
+        LinearLayout head = row();
+        FrameLayout back = badge(R.drawable.ic_chevron_right, SURFACE, TEXT, 40, LINE);
+        back.setRotation(180);
+        back.setOnClickListener(v -> { settingsPage = -1; settings(); });
+        head.addView(back);
+        TextView title = tv(SECTIONS[i], 20, TEXT, "sans-serif-medium");
+        title.setPadding(dp(12), 0, 0, 0);
+        head.addView(title, weight());
+        root.addView(head);
+        LinearLayout c = card(root, 16);
         int num = InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL;
+        final Runnable[] save = new Runnable[1];
+        final boolean[] redraw = {false};
 
-        section(root, "Ride filters", null, null);
-        LinearLayout f = card(root, 0);
-        EditText fare = field(f, "Minimum fare (₹)", "Rides below this fare are skipped. Use 0 for no limit.", sp.getString("fare", "0"), num, 0);
-        EditText dist = field(f, "Maximum pickup distance (km)", "Rides with a farther pickup are skipped. Use 0 for no limit.", sp.getString("dist", "0"), num, 20);
-        EditText perkm = field(f, "Minimum earnings per km (₹)", "Skips rides that pay less per km. Use 0 for no limit.", sp.getString("perkm", "0"), num, 20);
-        EditText delay = field(f, "Response delay (seconds)", "Wait this long before accepting.", n(pref(sp, "delay", 300) / 1000), num, 20);
-        EditText near = field(f, "Instant-accept radius (km)", "Rides with pickup this close are accepted with no delay. Use 0 to turn off.", sp.getString("near", "0"), num, 20);
+        switch (i) {
+            case 0: {
+                final EditText[] f = new EditText[4]; // fare, pickup limit, drop limit, earnings per km
+                label(c, "Distance unit", 14, TEXT, "sans-serif-medium", 0);
+                segmented(c, new String[]{"Kilometers", "Meters"}, meters(sp) ? 1 : 0, 8, k -> {
+                    saveFilters(f); // keep what was typed (in the unit shown until now), then redraw with values converted
+                    sp.edit().putString("dist_unit", k == 1 ? "m" : "km").apply();
+                    settingsSection(0);
+                });
+                f[0] = field(c, "Minimum fare (₹)", "Rides below this fare are skipped. Use 0 for no limit.", sp.getString("fare", "0"), num, 16);
+                f[1] = field(c, F("Maximum pickup distance (%s)", unitName(sp)), "Rides with a farther pickup are skipped. Use 0 for no limit.", n2(toUi(sp, pref(sp, "dist", 0))), num, 16);
+                f[2] = field(c, F("Maximum drop distance (%s)", unitName(sp)), "Rides that go farther than this are skipped. Use 0 for no limit.", n2(toUi(sp, pref(sp, "dropmax", 0))), num, 16);
+                f[3] = field(c, "Minimum earnings per km (₹)", "Skips rides that pay less per km. Use 0 for no limit.", sp.getString("perkm", "0"), num, 16);
+                save[0] = () -> saveFilters(f);
+                break;
+            }
+            case 1: {
+                EditText delay = field(c, "Response delay (seconds)", "Wait this long before accepting.", n(pref(sp, "delay", 300) / 1000), num, 0);
+                EditText near = field(c, F("Instant-accept radius (%s)", unitName(sp)), "Rides with pickup this close are accepted with no delay. Use 0 to turn off.", n2(toUi(sp, pref(sp, "near", 0))), num, 16);
+                save[0] = () -> {
+                    double secs = 0.3;
+                    try { secs = Double.parseDouble(delay.getText().toString()); } catch (Exception ex) { /* keep default */ }
+                    sp.edit().putString("delay", String.valueOf((long) (secs * 1000))).putString("near", n4(fromUi(sp, parse(near)))).apply();
+                };
+                break;
+            }
+            case 2: {
+                String t0 = sp.getString("target", "8");
+                EditText tBike = field(c, "Bike / scooty target (₹ per km)", "Rides at or above this are marked Worth it.", sp.getString("target_Bike", t0), num, 0);
+                EditText tAuto = field(c, "Auto target (₹ per km)", "Rides at or above this are marked Worth it.", sp.getString("target_Auto", t0), num, 16);
+                EditText tCar = field(c, "Car target (₹ per km)", "Rides at or above this are marked Worth it.", sp.getString("target_Car", t0), num, 16);
+                save[0] = () -> sp.edit().putString("target_Bike", tBike.getText().toString()).putString("target_Auto", tAuto.getText().toString())
+                    .putString("target_Car", tCar.getText().toString()).apply();
+                break;
+            }
+            case 3: {
+                label(c, "My vehicle", 14, TEXT, "sans-serif-medium", 0);
+                String[] veh = {sp.getString("vehicle", "Bike")};
+                segmented(c, VNAMES, Math.max(0, Arrays.asList(TYPES).indexOf(veh[0])), 8, k -> veh[0] = TYPES[k]);
+                label(c, "Used when the ride type isn't shown on the request.", 13, SUBTLE, "sans-serif", 4);
+                EditText petrol = field(c, "Fuel price (₹ per litre)", "Current fuel price in your city.", sp.getString("petrol", "105"), num, 16);
+                EditText fixed = field(c, "Monthly fixed costs (₹)", "EMI, insurance, phone plan. Spread evenly across the days in Money.", sp.getString("fixed", "0"), num, 16);
+                save[0] = () -> sp.edit().putString("vehicle", veh[0]).putString("petrol", petrol.getText().toString())
+                    .putString("fixed", fixed.getText().toString()).apply();
+                break;
+            }
+            case 4: {
+                EditText mBike = field(c, "Bike / scooty mileage (km per litre)", "Used to work out fuel cost per km.", sp.getString("mile_Bike", "45"), num, 0);
+                EditText mAuto = field(c, "Auto mileage (km per litre)", "Used to work out fuel cost per km.", sp.getString("mile_Auto", "25"), num, 16);
+                EditText mCar = field(c, "Car mileage (km per litre)", "Used to work out fuel cost per km.", sp.getString("mile_Car", "15"), num, 16);
+                save[0] = () -> sp.edit().putString("mile_Bike", mBike.getText().toString()).putString("mile_Auto", mAuto.getText().toString())
+                    .putString("mile_Car", mCar.getText().toString()).apply();
+                break;
+            }
+            case 5: {
+                EditText goal = field(c, "Daily earnings goal (₹)", "Shows progress on the home screen. Use 0 to hide.", sp.getString("goal", "0"), num, 0);
+                CheckBox alert = check("Vibrate and beep for Worth it rides", sp.getBoolean("alert", true));
+                CheckBox reject = check("Decline rides rated Low", sp.getBoolean("reject", false));
+                LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(-1, -2);
+                cl.topMargin = dp(12);
+                c.addView(alert, cl);
+                c.addView(reject, new LinearLayout.LayoutParams(-1, -2));
+                label(c, "Taps Reject on Low rides. Off by default; a wrong match would lose you a ride.", 13, SUBTLE, "sans-serif", 0);
+                save[0] = () -> sp.edit().putString("goal", goal.getText().toString()).putBoolean("alert", alert.isChecked())
+                    .putBoolean("reject", reject.isChecked()).apply();
+                break;
+            }
+            case 6: {
+                label(c, "Language", 14, TEXT, "sans-serif-medium", 0);
+                String[] lang = {sp.getString("lang", "en")};
+                segmented(c, LANG_NAMES, Math.max(0, Arrays.asList(LANGS).indexOf(lang[0])), 8, k -> lang[0] = LANGS[k]);
+                CheckBox bubble = check("Show the floating Vamsify bubble over driver apps", sp.getBoolean("bubble", true));
+                CheckBox trip = check("Show trip details after accepting", sp.getBoolean("trip", true));
+                CheckBox large = check("Large text and bigger buttons", sp.getBoolean("large", false));
+                CheckBox onehand = check("One-hand layout (main controls at the bottom)", sp.getBoolean("onehand", false));
+                CheckBox notif = check("Pause and resume notification", sp.getBoolean("notif", true));
+                CheckBox summary = check("Daily summary at 9 PM", sp.getBoolean("summary", true));
+                LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(-1, -2);
+                cl.topMargin = dp(12);
+                c.addView(bubble, cl);
+                for (CheckBox cb : new CheckBox[]{trip, large, onehand, notif, summary}) c.addView(cb, new LinearLayout.LayoutParams(-1, -2));
+                save[0] = () -> {
+                    redraw[0] = !lang[0].equals(sp.getString("lang", "en")) || large.isChecked() != sp.getBoolean("large", false)
+                        || onehand.isChecked() != sp.getBoolean("onehand", false);
+                    sp.edit().putString("lang", lang[0]).putBoolean("bubble", bubble.isChecked()).putBoolean("trip", trip.isChecked())
+                        .putBoolean("large", large.isChecked()).putBoolean("onehand", onehand.isChecked())
+                        .putBoolean("notif", notif.isChecked()).putBoolean("summary", summary.isChecked()).apply();
+                    if (notif.isChecked() || summary.isChecked()) askNotificationPermission();
+                    scheduleSummary(this);
+                };
+                break;
+            }
+            default: {
+                CheckBox[] boxes = appChecks(c);
+                save[0] = () -> sp.edit().putString("pkgs", pkgsFrom(boxes)).apply();
+            }
+        }
 
-        section(root, "Earnings targets", null, null);
-        LinearLayout e = card(root, 0);
-        String t0 = sp.getString("target", "8");
-        EditText tBike = field(e, "Bike / scooty target (₹ per km)", "Rides at or above this are marked Worth it.", sp.getString("target_Bike", t0), num, 0);
-        EditText tAuto = field(e, "Auto target (₹ per km)", "Rides at or above this are marked Worth it.", sp.getString("target_Auto", t0), num, 20);
-        EditText tCar = field(e, "Car target (₹ per km)", "Rides at or above this are marked Worth it.", sp.getString("target_Car", t0), num, 20);
-
-        section(root, "Vehicle & fuel", null, null);
-        LinearLayout vc = card(root, 0);
-        label(vc, "My vehicle", 14, TEXT, "sans-serif-medium", 0);
-        String[] veh = {sp.getString("vehicle", "Bike")};
-        segmented(vc, VNAMES, Math.max(0, Arrays.asList(TYPES).indexOf(veh[0])), 8, i -> veh[0] = TYPES[i]);
-        label(vc, "Used when the ride type isn't shown on the request.", 13, SUBTLE, "sans-serif", 4);
-        EditText petrol = field(vc, "Fuel price (₹ per litre)", "Current fuel price in your city.", sp.getString("petrol", "105"), num, 20);
-        EditText mBike = field(vc, "Bike / scooty mileage (km per litre)", "Used to work out fuel cost per km.", sp.getString("mile_Bike", "45"), num, 20);
-        EditText mAuto = field(vc, "Auto mileage (km per litre)", "Used to work out fuel cost per km.", sp.getString("mile_Auto", "25"), num, 20);
-        EditText mCar = field(vc, "Car mileage (km per litre)", "Used to work out fuel cost per km.", sp.getString("mile_Car", "15"), num, 20);
-        EditText fixed = field(vc, "Monthly fixed costs (₹)", "EMI, insurance, phone plan. Spread evenly across the days in Money.", sp.getString("fixed", "0"), num, 20);
-
-        section(root, "Goals & alerts", null, null);
-        LinearLayout ga = card(root, 0);
-        EditText goal = field(ga, "Daily earnings goal (₹)", "Shows progress on the home screen. Use 0 to hide.", sp.getString("goal", "0"), num, 0);
-        CheckBox alert = check("Vibrate and beep for Worth it rides", sp.getBoolean("alert", true));
-        CheckBox reject = check("Decline rides rated Low", sp.getBoolean("reject", false));
-        CheckBox peak = check("Be stricter in peak hours", sp.getBoolean("peak_on", false));
-        LinearLayout.LayoutParams cbl = new LinearLayout.LayoutParams(-1, -2);
-        cbl.topMargin = dp(12);
-        ga.addView(alert, cbl);
-        ga.addView(reject, new LinearLayout.LayoutParams(-1, -2));
-        label(ga, "Taps Reject on Low rides. Off by default; a wrong match would lose you a ride.", 13, SUBTLE, "sans-serif", 0);
-        ga.addView(peak, cbl);
-        EditText pFrom = field(ga, "Peak hours start (0-23)", "Hour of day, 24-hour clock.", sp.getString("peak_from", "17"), InputType.TYPE_CLASS_NUMBER, 8);
-        EditText pTo = field(ga, "Peak hours end (0-23)", "Hour of day, 24-hour clock.", sp.getString("peak_to", "21"), InputType.TYPE_CLASS_NUMBER, 20);
-        EditText pPlus = field(ga, "Extra target in peak hours (₹ per km)", "Added to your targets during peak hours.", sp.getString("peak_plus", "2"), num, 20);
-
-        section(root, "Display & language", null, null);
-        LinearLayout dc = card(root, 0);
-        label(dc, "Language", 14, TEXT, "sans-serif-medium", 0);
-        String[] lang = {sp.getString("lang", "en")};
-        segmented(dc, LANG_NAMES, Math.max(0, Arrays.asList(LANGS).indexOf(lang[0])), 8, i -> lang[0] = LANGS[i]);
-        label(dc, "Earnings chip position", 14, TEXT, "sans-serif-medium", 20);
-        String[] pos = {sp.getString("chip_pos", "bottom")};
-        segmented(dc, new String[]{"Top", "Bottom"}, "top".equals(pos[0]) ? 0 : 1, 8, i -> pos[0] = i == 0 ? "top" : "bottom");
-        CheckBox bubble = check("Show the floating Vamsify bubble over driver apps", sp.getBoolean("bubble", true));
-        CheckBox large = check("Large text and bigger buttons", sp.getBoolean("large", false));
-        CheckBox onehand = check("One-hand layout (main controls at the bottom)", sp.getBoolean("onehand", false));
-        CheckBox notif = check("Pause and resume notification", sp.getBoolean("notif", true));
-        CheckBox summary = check("Daily summary at 9 PM", sp.getBoolean("summary", true));
-        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(-1, -2);
-        dl.topMargin = dp(12);
-        dc.addView(bubble, dl);
-        for (CheckBox c : new CheckBox[]{large, onehand, notif, summary}) dc.addView(c, new LinearLayout.LayoutParams(-1, -2));
-
-        section(root, "Driver apps", null, null);
-        LinearLayout a = card(root, 0);
-        CheckBox[] boxes = appChecks(a);
-
-        Button save = button(root, "Save changes", true, 24);
-        save.setOnClickListener(v -> {
-            boolean redraw = !lang[0].equals(sp.getString("lang", "en")) || large.isChecked() != sp.getBoolean("large", false)
-                || onehand.isChecked() != sp.getBoolean("onehand", false);
-            double secs = 0.3;
-            try { secs = Double.parseDouble(delay.getText().toString()); } catch (Exception ex) { /* keep default */ }
-            boolean filtersChanged = !fare.getText().toString().equals(sp.getString("fare", "0"))
-                || !dist.getText().toString().equals(sp.getString("dist", "0")) || !perkm.getText().toString().equals(sp.getString("perkm", "0"));
-            SharedPreferences.Editor ed = sp.edit()
-                .putString("fare", fare.getText().toString()).putString("dist", dist.getText().toString())
-                .putString("perkm", perkm.getText().toString()).putString("delay", String.valueOf((long) (secs * 1000)))
-                .putString("near", near.getText().toString())
-                .putString("target_Bike", tBike.getText().toString()).putString("target_Auto", tAuto.getText().toString())
-                .putString("target_Car", tCar.getText().toString())
-                .putString("vehicle", veh[0]).putString("petrol", petrol.getText().toString())
-                .putString("mile_Bike", mBike.getText().toString()).putString("mile_Auto", mAuto.getText().toString())
-                .putString("mile_Car", mCar.getText().toString()).putString("fixed", fixed.getText().toString())
-                .putString("goal", goal.getText().toString())
-                .putBoolean("alert", alert.isChecked()).putBoolean("reject", reject.isChecked()).putBoolean("peak_on", peak.isChecked())
-                .putString("peak_from", pFrom.getText().toString()).putString("peak_to", pTo.getText().toString())
-                .putString("peak_plus", pPlus.getText().toString())
-                .putString("lang", lang[0]).putString("chip_pos", pos[0])
-                .putBoolean("bubble", bubble.isChecked()).putBoolean("large", large.isChecked())
-                .putBoolean("onehand", onehand.isChecked()).putBoolean("notif", notif.isChecked())
-                .putBoolean("summary", summary.isChecked()).putString("pkgs", pkgsFrom(boxes));
-            if (filtersChanged) ed.putString("profile", ""); // edited by hand, so no preset applies
-            ed.apply();
-            if (notif.isChecked() || summary.isChecked()) askNotificationPermission();
-            scheduleSummary(this);
+        button(root, "Save changes", true, 16).setOnClickListener(v -> {
+            save[0].run();
             Toast.makeText(this, L("Changes saved"), Toast.LENGTH_SHORT).show();
-            if (redraw) recreate();
+            if (redraw[0]) { recreate(); return; }
+            settingsPage = -1;
+            settings();
         });
     }
 
@@ -1177,7 +1427,7 @@ public class MainActivity extends Activity {
             t.setGravity(Gravity.CENTER);
             t.setPadding(0, dp(2), 0, 0);
             item.addView(t, new LinearLayout.LayoutParams(-1, -2));
-            item.setOnClickListener(v -> show(idx));
+            item.setOnClickListener(v -> { if (idx == 3) settingsPage = -1; show(idx); });
             nav.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
         }
         bottom.addView(nav, new LinearLayout.LayoutParams(-1, -2));
