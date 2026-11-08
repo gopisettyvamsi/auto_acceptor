@@ -3,3 +3,4 @@ debug.keystore
 node_modules/
 .vercel/
 .vercel
+public/*.idsig
