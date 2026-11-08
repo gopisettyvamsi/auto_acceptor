@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.edvenswa.autoaccept">
-    <application android:label="Auto Acceptor">
+    <application android:label="Auto Acceptor" android:icon="@drawable/ic_launcher"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>

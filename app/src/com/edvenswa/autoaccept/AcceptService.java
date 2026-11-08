@@ -84,10 +84,22 @@ public class AcceptService extends AccessibilityService {
     }
 
     AccessibilityNodeInfo findAccept(List<AccessibilityNodeInfo> roots) {
-        for (AccessibilityNodeInfo root : roots)
-            for (String label : LABELS)
-                for (AccessibilityNodeInfo n : root.findAccessibilityNodeInfosByText(label))
-                    return n;
+        for (AccessibilityNodeInfo root : roots) {
+            AccessibilityNodeInfo n = walk(root);
+            if (n != null) return n;
+        }
+        return null;
+    }
+
+    // own tree walk: findAccessibilityNodeInfosByText returns nothing on Rapido's overlay
+    static AccessibilityNodeInfo walk(AccessibilityNodeInfo n) {
+        if (n == null) return null;
+        for (CharSequence s : new CharSequence[]{n.getText(), n.getContentDescription()})
+            if (s != null) for (String l : LABELS) if (s.toString().trim().equalsIgnoreCase(l)) return n;
+        for (int i = 0; i < n.getChildCount(); i++) {
+            AccessibilityNodeInfo f = walk(n.getChild(i));
+            if (f != null) return f;
+        }
         return null;
     }
 

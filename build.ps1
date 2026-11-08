@@ -8,6 +8,8 @@ New-Item -ItemType Directory build\classes | Out-Null
 & "$bt\aapt2.exe" compile --dir app\res -o build\res.zip
 & "$bt\aapt2.exe" link -o build\base.apk -I $jar --manifest app\AndroidManifest.xml --min-sdk-version 24 --target-sdk-version 34 build\res.zip
 javac --release 8 -Xlint:-options -encoding UTF-8 -cp $jar -d build\classes (Get-ChildItem app\src -Recurse -Filter *.java).FullName
+if ($LASTEXITCODE) { throw "javac failed" }
+Remove-Item public\auto-acceptor.apk -ErrorAction SilentlyContinue
 & "$bt\d8.bat" --lib $jar --output build (Get-ChildItem build\classes -Recurse -Filter *.class).FullName
 Push-Location build; jar uf base.apk classes.dex; Pop-Location
 & "$bt\zipalign.exe" -f 4 build\base.apk build\aligned.apk
