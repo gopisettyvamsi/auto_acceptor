@@ -53,7 +53,9 @@ public class MainActivity extends Activity {
         root.addView(acc);
         TextView log = new TextView(this); log.setTextIsSelectable(true); log.setTextSize(11);
         Button ref = new Button(this); ref.setText("Debug: show last screen read");
-        ref.setOnClickListener(v -> log.setText(sp.getString("dump", "nothing read yet - open a ride offer in the driver app first")));
+        ref.setOnClickListener(v -> log.setText("service connected=" + AcceptService.connected + "\nevents heard=" + AcceptService.events
+            + "\nlast app=" + AcceptService.lastPkg + "\n\n"
+            + sp.getString("dump", "no watched-app screen read yet")));
         root.addView(ref); root.addView(log);
         setContentView(sv);
     }

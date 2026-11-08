@@ -22,12 +22,20 @@ public class AcceptService extends AccessibilityService {
 
     final Handler h = new Handler(Looper.getMainLooper());
     long lastClick, lastRun;
+    static volatile int events;       // same process as the UI, so statics are visible to it
+    static volatile String lastPkg = "none";
+    static volatile boolean connected;
+
+    @Override protected void onServiceConnected() { connected = true; }
+    @Override public boolean onUnbind(android.content.Intent i) { connected = false; return super.onUnbind(i); }
 
     // ponytail: first km on screen is assumed to be pickup distance; adjust per app if layouts differ.
     @Override public void onAccessibilityEvent(AccessibilityEvent e) {
         SharedPreferences sp = getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE);
-        if (!sp.getBoolean("on", false) || e.getPackageName() == null) return;
+        if (e.getPackageName() == null) return;
         String pkg = e.getPackageName().toString();
+        events++; lastPkg = pkg; // diagnostics, shown in the app's debug view
+        if (!sp.getBoolean("on", false)) return;
         if (!sp.getString("pkgs", MainActivity.DEFAULT_PKGS).contains(pkg)) return;
         long now = System.currentTimeMillis();
         if (now - lastRun < 150 || now - lastClick < 4000) return; // throttle + cooldown after a tap
@@ -37,6 +45,12 @@ public class AcceptService extends AccessibilityService {
         for (AccessibilityWindowInfo w : getWindows()) {
             AccessibilityNodeInfo r = w.getRoot();
             if (r != null && pkg.contentEquals(r.getPackageName())) roots.add(r);
+        }
+        AccessibilityNodeInfo src = e.getSource(); // overlays: read the window that fired the event
+        if (src != null) {
+            AccessibilityNodeInfo top = src;
+            for (AccessibilityNodeInfo p = src.getParent(); p != null; p = p.getParent()) top = p;
+            roots.add(top);
         }
         if (roots.isEmpty()) {
             AccessibilityNodeInfo r = getRootInActiveWindow();
