@@ -54,6 +54,9 @@ public class CardLayoutCheck {
         assert rs.get(0).lines().contains("Bike Metro") && rs.get(1).lines().contains("Bike Metro") : "ride type label stays with its card";
         assert rs.get(0).lines().contains("Accept") && rs.get(1).lines().contains("Accept") : "each card has its own Accept";
 
+        assert rs.get(0).dist1.text.equals("1.6 km") && rs.get(0).dist1.top == 540 : "card 1 pickup row";
+        assert rs.get(1).dist1.text.equals("0.9 km") && rs.get(1).dist1.top == 1290 : "card 2 pickup row";
+
         for (CardLayout.Region r : rs) {
             assert !r.lines().contains("Go To") && !r.lines().contains("Stay In") : "top chips are not part of a card";
             assert !r.lines().contains("+₹13") : "order tabs are not part of a card";

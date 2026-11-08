@@ -26,6 +26,7 @@ final class CardLayout {
 
     static final class Region {
         Box head;                                      // the fare line that opens the card
+        Box dist1;                                     // its first distance line (the pickup distance)
         int start, end;                                // vertical span of the card
         final List<Box> boxes = new ArrayList<>();     // everything inside the card, in reading order
 
@@ -72,6 +73,8 @@ final class CardLayout {
             List<Box> inside = new ArrayList<>();
             for (Box b : all) if (b.top >= r.start && b.top < r.end && b.left > colX - 0.15 * w) inside.add(b);
             r.boxes.addAll(readingOrder(inside, h));
+            for (Box b : r.boxes)
+                if (b.text.length() <= 24 && FareParser.DIST_LINE.matcher(b.text).find()) { r.dist1 = b; break; }
             out.add(r);
         }
         return out;

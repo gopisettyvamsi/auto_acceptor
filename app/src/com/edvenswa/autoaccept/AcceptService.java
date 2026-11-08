@@ -43,8 +43,10 @@ import android.widget.TextView;
 import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -90,7 +92,7 @@ public class AcceptService extends AccessibilityService {
     /** One ride request card on the driver app's screen. */
     static class Card {
         AccessibilityNodeInfo accept, node, reject;
-        Rect acceptBounds = new Rect(), fareBounds = new Rect();
+        Rect acceptBounds = new Rect(), fareBounds = new Rect(), distBounds = new Rect();
         String text = "", pickupAddr = "", dropAddr = "", type = "Bike", key = "", reason;
         double fare, base, bonus, perKm, dist, fuel; // fare = base + any extra the customer added
         int rank;      // 2 = matches Go To, 1 = matches Stay In, 0 = neither
@@ -106,8 +108,8 @@ public class AcceptService extends AccessibilityService {
     final Set<String> alerted = new HashSet<>(), skipped = new HashSet<>();
     List<Card> lastCards = new ArrayList<>();
     final List<ChipView> chips = new ArrayList<>();
-    final List<int[]> chipBase = new ArrayList<>(); // anchor of each chip before the user's drag offset
-    int chipDx, chipDy;
+    final List<int[]> chipBase = new ArrayList<>(); // per chip: x, y beside the fare, fare height, pickup-row top, pickup-row height
+    final Map<String, int[]> drag = new HashMap<>(); // offset of a chip the driver dragged; only for the offer on screen, never saved
     LinearLayout tripView;
     int pBg, pFg, pSub, pLine, pAcc; // trip popup colours, set from the theme each time it opens
     ImageView bubble;
@@ -135,6 +137,7 @@ public class AcceptService extends AccessibilityService {
         IntentFilter f = new IntentFilter(ACTION_TOGGLE);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(toggleRcv, f, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(toggleRcv, f);
+        prefs().edit().remove("chip_dx").remove("chip_dy").apply(); // older builds saved one drag offset for every chip
         prefs().registerOnSharedPreferenceChangeListener(prefL);
         refreshNote();
         MainActivity.scheduleSummary(this);
@@ -277,7 +280,7 @@ public class AcceptService extends AccessibilityService {
         if (showChip) showChips(cards); else removeChips();
         curPkg = pkg;
         h.removeCallbacks(tick);
-        if (showChip) h.postDelayed(tick, 700);
+        if (showChip) h.postDelayed(tick, 450);
 
         for (Card c : cards) {
             if (c.verdict == 2 && sp.getBoolean("alert", true) && alerted.add(c.key)) alert();
@@ -361,6 +364,7 @@ public class AcceptService extends AccessibilityService {
             Card c = fromLines(lines, t, fs, kms);
             c.node = (AccessibilityNodeInfo) rg.head.ref;
             c.fareBounds.set(rg.head.left, rg.head.top, rg.head.right, rg.head.bottom);
+            if (rg.dist1 != null) c.distBounds.set(rg.dist1.left, rg.dist1.top, rg.dist1.right, rg.dist1.bottom);
             c.accept = firstIn(accepts, rg.start, rg.end); // may be null when the app hides this card's button
             if (c.accept != null) c.accept.getBoundsInScreen(c.acceptBounds);
             c.reject = firstIn(rejects, rg.start, rg.end);
@@ -513,7 +517,7 @@ public class AcceptService extends AccessibilityService {
             int x, y;
             if (!c.fareBounds.isEmpty()) { x = c.fareBounds.right + (int) (10 * d); y = c.fareBounds.top - (int) (2 * d); }
             else { x = c.acceptBounds.left; y = c.acceptBounds.top - (int) (46 * d); }
-            pos.add(new int[]{x, y});
+            pos.add(new int[]{x, y, c.fareBounds.height(), c.distBounds.isEmpty() ? -1 : c.distBounds.top, c.distBounds.height()});
             shown.add(c);
         }
         render(sp, shown, pos);
@@ -530,6 +534,7 @@ public class AcceptService extends AccessibilityService {
 
     /** Dark pill like Rapido's own chip, stretched longer at the same height: logo, earnings per km, rating and pickup, what you keep and the fuel cost. */
     class ChipView extends LinearLayout {
+        String key = ""; // which card this chip belongs to
         final TextView main, verdict, keep;
 
         ChipView() {
@@ -583,13 +588,13 @@ public class AcceptService extends AccessibilityService {
     void render(SharedPreferences sp, List<Card> cs, List<int[]> pos) {
         float d = density();
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        if (chips.isEmpty()) { chipDx = sp.getInt("chip_dx", 0); chipDy = sp.getInt("chip_dy", 0); }
         while (chips.size() > cs.size()) { removeChipView(chips.remove(chips.size() - 1)); chipBase.remove(chipBase.size() - 1); }
-        while (chips.size() < cs.size()) { chips.add(newChip()); chipBase.add(new int[3]); }
+        while (chips.size() < cs.size()) { chips.add(newChip()); chipBase.add(new int[5]); }
         for (int i = 0; i < cs.size(); i++) {
             Card c = cs.get(i);
             chips.get(i).bind(c, sp);
-            chipBase.get(i)[0] = pos.get(i)[0]; chipBase.get(i)[1] = pos.get(i)[1]; chipBase.get(i)[2] = cs.get(i).fareBounds.height();
+            chips.get(i).key = c.key;
+            System.arraycopy(pos.get(i), 0, chipBase.get(i), 0, 5);
         }
         relayoutChips(dm);
         h.removeCallbacks(hideChips);
@@ -603,14 +608,17 @@ public class AcceptService extends AccessibilityService {
             ChipView t = chips.get(i);
             WindowManager.LayoutParams lp = (WindowManager.LayoutParams) t.getLayoutParams();
             t.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-            int w = Math.max(t.getWidth(), t.getMeasuredWidth());
-            int bx = chipBase.get(i)[0], by = chipBase.get(i)[1];
-            if (bx + w > dm.widthPixels - margin) { // no room beside the fare: tuck the chip just under it, at the right edge
+            int w = Math.max(t.getWidth(), t.getMeasuredWidth()), hh = Math.max(t.getHeight(), t.getMeasuredHeight());
+            int[] b = chipBase.get(i);
+            int bx = b[0], by = b[1];
+            if (bx + w > dm.widthPixels - margin) { // no room beside the fare: use the pickup-distance row, at the right edge (empty there)
                 bx = dm.widthPixels - margin - w;
-                by += chipBase.get(i)[2] + (int) (4 * d);
+                by = b[3] >= 0 ? b[3] + (b[4] - hh) / 2 : by + b[2] + (int) (4 * d);
             }
-            lp.x = Math.max(0, Math.min(dm.widthPixels - margin - w, bx + chipDx));
-            lp.y = Math.max(0, by + chipDy);
+            int[] off = drag.get(t.key);
+            if (off != null) { bx += off[0]; by += off[1]; }
+            lp.x = Math.max(0, Math.min(dm.widthPixels - margin - w, bx));        // never off the screen
+            lp.y = Math.max(0, Math.min(dm.heightPixels - margin - hh, by));
             try { wm().updateViewLayout(t, lp); } catch (RuntimeException ex) { /* removed meanwhile */ }
         }
     }
@@ -623,18 +631,22 @@ public class AcceptService extends AccessibilityService {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.START;
-        // drag any chip: all chips move together and the offset is remembered
+        // drag a chip to move that chip only; the move lasts while this offer is on screen
         t.setOnTouchListener(new View.OnTouchListener() {
             float sx, sy; int ox, oy;
             @Override public boolean onTouch(View v, MotionEvent ev) {
+                String k = ((ChipView) v).key;
                 switch (ev.getAction()) {
-                    case MotionEvent.ACTION_DOWN: sx = ev.getRawX(); sy = ev.getRawY(); ox = chipDx; oy = chipDy; return true;
+                    case MotionEvent.ACTION_DOWN: {
+                        int[] cur = drag.get(k);
+                        sx = ev.getRawX(); sy = ev.getRawY(); ox = cur == null ? 0 : cur[0]; oy = cur == null ? 0 : cur[1];
+                        return true;
+                    }
                     case MotionEvent.ACTION_MOVE:
-                        chipDx = ox + (int) (ev.getRawX() - sx); chipDy = oy + (int) (ev.getRawY() - sy);
+                        drag.put(k, new int[]{ox + (int) (ev.getRawX() - sx), oy + (int) (ev.getRawY() - sy)});
                         relayoutChips(getResources().getDisplayMetrics());
                         return true;
                     case MotionEvent.ACTION_UP:
-                        prefs().edit().putInt("chip_dx", chipDx).putInt("chip_dy", chipDy).apply();
                         return true;
                 }
                 return false;
@@ -652,7 +664,7 @@ public class AcceptService extends AccessibilityService {
         h.removeCallbacks(hideChips);
         h.removeCallbacks(tick);
         for (ChipView t : chips) removeChipView(t);
-        chips.clear(); chipBase.clear();
+        chips.clear(); chipBase.clear(); drag.clear();
     }
 
     // =====================================================================
