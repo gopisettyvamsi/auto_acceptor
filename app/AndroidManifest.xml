@@ -23,5 +23,6 @@
             <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibility_config"/>
         </service>
         <receiver android:name=".SummaryReceiver" android:exported="false"/>
+        <activity android:name=".SampleActivity" android:exported="false"/>
     </application>
 </manifest>

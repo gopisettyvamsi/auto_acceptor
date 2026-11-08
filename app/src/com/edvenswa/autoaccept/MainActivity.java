@@ -48,10 +48,26 @@ public class MainActivity extends Activity {
     static final String[] LANGS ={"en", "hi", "te"};
     static final String[] LANG_NAMES = {"English", "हिन्दी", "తెలుగు"};
 
-    // palette: one accent, neutral greys
-    static final int ACCENT = 0xFF1F4FD8, ACCENT_SOFT = 0xFFEAF0FF, BG = 0xFFF4F5F8, SURFACE = Color.WHITE,
-            LINE = 0xFFE6E8EE, TEXT = 0xFF14171F, SUBTLE = 0xFF667085, OK = 0xFF1E8E4E, WARN = 0xFFB3261E,
-            HERO = 0xFF101828, ON_HERO = 0xB3FFFFFF;
+    // palette: one accent, neutral greys. Dark by default; applyTheme() swaps the values (light = black, bold text).
+    static int ACCENT, ACCENT_SOFT, BG, SURFACE, LINE, TEXT, SUBTLE, OK, WARN, HERO,
+            INPUT_LINE, OK_SOFT, WARN_SOFT, BAR, THUMB_OFF, TRACK_OFF;
+    static final int ON_HERO = 0xB3FFFFFF;
+    static boolean dark = true;
+
+    static void applyTheme(SharedPreferences sp) {
+        dark = sp.getBoolean("dark", true);
+        if (dark) {
+            ACCENT = 0xFF5B8CFF; ACCENT_SOFT = 0xFF1B2A4D; BG = 0xFF0B0F17; SURFACE = 0xFF151A25; LINE = 0xFF2A3345;
+            TEXT = 0xFFF5F7FA; SUBTLE = 0xFFD2D8E4; OK = 0xFF3DD68C; WARN = 0xFFFF6B63; HERO = 0xFF1C2433;
+            INPUT_LINE = 0xFF3A4560; OK_SOFT = 0xFF173A2A; WARN_SOFT = 0xFF45201E; BAR = 0xFF2C3A5E;
+            THUMB_OFF = 0xFFAEB7C8; TRACK_OFF = 0xFF3A4560;
+        } else {
+            ACCENT = 0xFF1F4FD8; ACCENT_SOFT = 0xFFEAF0FF; BG = 0xFFF4F5F8; SURFACE = Color.WHITE; LINE = 0xFFE6E8EE;
+            TEXT = 0xFF0B0F19; SUBTLE = 0xFF1F2937; OK = 0xFF1E8E4E; WARN = 0xFFB3261E; HERO = 0xFF101828;
+            INPUT_LINE = 0xFFC4C9D2; OK_SOFT = 0xFFE3F4EA; WARN_SOFT = 0xFFFCE8E6; BAR = 0xFFC7D2F5;
+            THUMB_OFF = 0xFFF2F4F7; TRACK_OFF = 0xFFD0D5DD;
+        }
+    }
 
     SharedPreferences sp;
     FrameLayout content;
@@ -289,7 +305,8 @@ public class MainActivity extends Activity {
     TextView tv(String s, int size, int color, String family) {
         TextView t = new TextView(this);
         t.setText(L(s)); t.setTextSize(size * scale()); t.setTextColor(color);
-        t.setTypeface(Typeface.create(family, Typeface.NORMAL));
+        t.setTypeface(Typeface.create("sans-serif-medium".equals(family) ? "sans-serif" : "sans-serif-medium",
+            "sans-serif-medium".equals(family) ? Typeface.BOLD : Typeface.NORMAL));
         return t;
     }
 
@@ -363,8 +380,13 @@ public class MainActivity extends Activity {
         root.addView(r, lp);
     }
 
+    static int vehicleIcon(String type) {
+        return "Bike".equals(type) ? R.drawable.ic_bike : "Auto".equals(type) ? R.drawable.ic_auto : R.drawable.ic_car;
+    }
+
     TextView chip(int v) {
-        int[] fg = {0xFFB3261E, 0xFF8A5A00, 0xFF1E8E4E}, bg = {0xFFFCE8E6, 0xFFFFF1D6, 0xFFE3F4EA};
+        int[] fg = dark ? new int[]{0xFFFF8A80, 0xFFFFD54F, 0xFF5BD68A} : new int[]{0xFFB3261E, 0xFF8A5A00, 0xFF1E8E4E};
+        int[] bg = dark ? new int[]{0x33EF5350, 0x33FFC107, 0x332EAD5B} : new int[]{0xFFFCE8E6, 0xFFFFF1D6, 0xFFE3F4EA};
         String[] name = {"Low", "Average", "Worth it"};
         TextView t = tv(name[v], 12, fg[v], "sans-serif-medium");
         t.setPadding(dp(10), dp(4), dp(10), dp(4));
@@ -375,8 +397,8 @@ public class MainActivity extends Activity {
     Switch toggle(boolean checked) {
         Switch s = new Switch(this);
         int[][] st = {{android.R.attr.state_checked}, {}};
-        s.setThumbTintList(new ColorStateList(st, new int[]{ACCENT, 0xFFF2F4F7}));
-        s.setTrackTintList(new ColorStateList(st, new int[]{0x661F4FD8, 0xFFD0D5DD}));
+        s.setThumbTintList(new ColorStateList(st, new int[]{ACCENT, THUMB_OFF}));
+        s.setTrackTintList(new ColorStateList(st, new int[]{(ACCENT & 0x00FFFFFF) | 0x66000000, TRACK_OFF}));
         s.setChecked(checked);
         return s;
     }
@@ -385,6 +407,7 @@ public class MainActivity extends Activity {
         CheckBox c = new CheckBox(this);
         c.setText(L(text)); c.setChecked(checked); c.setTextSize(16 * scale()); c.setTextColor(TEXT);
         c.setButtonTintList(ColorStateList.valueOf(ACCENT));
+        c.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
         return c;
     }
 
@@ -393,7 +416,8 @@ public class MainActivity extends Activity {
         EditText e = new EditText(this);
         e.setInputType(type); e.setText(val); e.setSingleLine(true);
         e.setTextColor(TEXT); e.setTextSize(16 * scale());
-        e.setBackground(shape(SURFACE, 10, 0xFFC4C9D2));
+        e.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        e.setBackground(shape(SURFACE, 10, INPUT_LINE));
         e.setPadding(dp(12), 0, dp(12), 0);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(Math.round(48 * scale())));
         lp.topMargin = dp(8);
@@ -405,7 +429,7 @@ public class MainActivity extends Activity {
     Button button(LinearLayout p, String s, boolean primary, int top) {
         Button b = new Button(this);
         b.setText(L(s)); b.setAllCaps(false); b.setTextSize(15 * scale());
-        b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        b.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
         b.setTextColor(primary ? Color.WHITE : ACCENT);
         b.setBackground(primary ? shape(ACCENT, 12, 0) : shape(SURFACE, 12, ACCENT));
         b.setStateListAnimator(null);
@@ -423,7 +447,7 @@ public class MainActivity extends Activity {
         Runnable paint = () -> {
             for (int i = 0; i < o.length; i++) {
                 boolean s = i == cur[0];
-                o[i].setBackground(shape(s ? ACCENT : SURFACE, 10, s ? 0 : 0xFFC4C9D2));
+                o[i].setBackground(shape(s ? ACCENT : SURFACE, 10, s ? 0 : INPUT_LINE));
                 o[i].setTextColor(s ? Color.WHITE : TEXT);
             }
         };
@@ -489,7 +513,7 @@ public class MainActivity extends Activity {
             double pk = x.perKm(), fuel = costPerKm(sp, x.type) * x.km(), keep = x.fare - fuel;
             LinearLayout r = row();
             if (i > 0) ((LinearLayout.LayoutParams) (r.getLayoutParams() == null ? new LinearLayout.LayoutParams(-1, -2) : r.getLayoutParams())).topMargin = dp(12);
-            r.addView(badge(R.drawable.ic_car, ACCENT_SOFT, ACCENT, 44, 0));
+            r.addView(badge(vehicleIcon(x.type), ACCENT_SOFT, ACCENT, 44, 0));
             LinearLayout c = col();
             c.setPadding(dp(12), 0, dp(8), 0);
             String money = "₹" + Math.round(x.fare);
@@ -515,9 +539,10 @@ public class MainActivity extends Activity {
             float w = getWidth(), h = getHeight(), slot = w / v.length, bw = slot * 0.5f, foot = dp(20);
             p.setTextAlign(android.graphics.Paint.Align.CENTER);
             p.setTextSize(dp(11));
+            p.setTypeface(Typeface.DEFAULT_BOLD);
             for (int i = 0; i < v.length; i++) {
                 float bh = (float) ((h - foot - dp(18)) * v[i] / max), x = slot * i + (slot - bw) / 2, top = h - foot - bh;
-                p.setColor(i == v.length - 1 ? ACCENT : 0xFFC7D2F5);
+                p.setColor(i == v.length - 1 ? ACCENT : BAR);
                 c.drawRoundRect(x, top, x + bw, h - foot, dp(4), dp(4), p);
                 p.setColor(SUBTLE);
                 c.drawText(d[i], slot * i + slot / 2, h - dp(4), p);
@@ -547,7 +572,7 @@ public class MainActivity extends Activity {
         c.addView(new WeekChart(v, d), cl);
         LinearLayout stats = row();
         String[][] st = {{"₹" + Math.round(fare), "Earned"}, {String.valueOf(cnt), "Rides"},
-            {km > 0 ? "₹" + String.format(Locale.US, "%.1f", fare / km) : "–", "Avg per km"}};
+            {km > 0 ? fmtDist(sp, km) : "\u2013", "Total km"}};
         for (String[] s : st) {
             LinearLayout k = col();
             label(k, s[0], 18, TEXT, "sans-serif-medium", 0);
@@ -776,7 +801,7 @@ public class MainActivity extends Activity {
     }
 
     /** A large selectable card (radio style): title, optional subtitle, check mark on the right. */
-    void choice(LinearLayout parent, String title, String sub, boolean selected, Runnable onTap) {
+    void choice(LinearLayout parent, int icon, String title, String sub, boolean selected, Runnable onTap) {
         LinearLayout c = row();
         c.setPadding(dp(16), dp(14), dp(16), dp(14));
         GradientDrawable g = new GradientDrawable();
@@ -784,6 +809,11 @@ public class MainActivity extends Activity {
         g.setCornerRadius(dp(14));
         g.setStroke(dp(selected ? 2 : 1), selected ? ACCENT : LINE);
         c.setBackground(g);
+        if (icon != 0) { // vehicle cards carry their own icon
+            FrameLayout ib = badge(icon, selected ? SURFACE : ACCENT_SOFT, ACCENT, 44, 0);
+            ((LinearLayout.LayoutParams) ib.getLayoutParams()).rightMargin = dp(14);
+            c.addView(ib);
+        }
         LinearLayout t = col();
         label(t, title, 18, TEXT, "sans-serif-medium", 0);
         if (sub != null) label(t, sub, 13, SUBTLE, "sans-serif", 2);
@@ -866,7 +896,7 @@ public class MainActivity extends Activity {
             String cur = sp.getString("lang", "en");
             for (int i = 0; i < LANGS.length; i++) {
                 final int idx = i;
-                choice(body, LANG_NAMES[i], null, LANGS[i].equals(cur), () -> {
+                choice(body, 0, LANG_NAMES[i], null, LANGS[i].equals(cur), () -> {
                     sp.edit().putString("lang", LANGS[idx]).apply();
                     recreate(); // redraws the whole flow in the chosen language
                 });
@@ -879,7 +909,7 @@ public class MainActivity extends Activity {
             String curV = sp.getString("vehicle", "Bike");
             for (int i = 0; i < TYPES.length; i++) {
                 final int idx = i;
-                choice(body, L(VNAMES[i]), F("%s km per litre", n(pref(sp, "mile_" + TYPES[i], DEF_MILEAGE[i]))), TYPES[i].equals(curV), () -> {
+                choice(body, vehicleIcon(TYPES[i]), L(VNAMES[i]), F("%s km per litre", n(pref(sp, "mile_" + TYPES[i], DEF_MILEAGE[i]))), TYPES[i].equals(curV), () -> {
                     if (fuel[0] != null) sp.edit().putString("petrol", fuel[0].getText().toString()).apply(); // keep what was typed
                     sp.edit().putString("vehicle", TYPES[idx]).apply();
                     onboard();
@@ -893,7 +923,7 @@ public class MainActivity extends Activity {
             boolean on = AcceptService.connected;
             LinearLayout st = card(body, 20);
             LinearLayout sr = row();
-            sr.addView(badge(on ? R.drawable.ic_check_circle : R.drawable.ic_error, on ? 0xFFE3F4EA : 0xFFFCE8E6, on ? OK : WARN, 40, 0));
+            sr.addView(badge(on ? R.drawable.ic_check_circle : R.drawable.ic_error, on ? OK_SOFT : WARN_SOFT, on ? OK : WARN, 40, 0));
             LinearLayout sc = col();
             sc.setPadding(dp(12), 0, 0, 0);
             label(sc, on ? "Service is on" : "Service is not on yet", 16, TEXT, "sans-serif-medium", 0);
@@ -957,7 +987,7 @@ public class MainActivity extends Activity {
         LinearLayout c = card(p, 16);
         if (svc && batt && app) {
             LinearLayout r = row();
-            r.addView(badge(R.drawable.ic_check_circle, 0xFFE3F4EA, OK, 40, 0));
+            r.addView(badge(R.drawable.ic_check_circle, OK_SOFT, OK, 40, 0));
             LinearLayout t = col();
             t.setPadding(dp(12), 0, 0, 0);
             label(t, "Everything is set up", 15, TEXT, "sans-serif-medium", 0);
@@ -974,7 +1004,7 @@ public class MainActivity extends Activity {
         boolean[] ok = {svc, batt, app};
         for (int i = 0; i < 3; i++) {
             LinearLayout r = row();
-            r.addView(badge(ok[i] ? R.drawable.ic_check_circle : R.drawable.ic_error, ok[i] ? 0xFFE3F4EA : 0xFFFCE8E6, ok[i] ? OK : WARN, 36, 0));
+            r.addView(badge(ok[i] ? R.drawable.ic_check_circle : R.drawable.ic_error, ok[i] ? OK_SOFT : WARN_SOFT, ok[i] ? OK : WARN, 36, 0));
             LinearLayout t = col();
             t.setPadding(dp(12), 0, 0, 0);
             label(t, items[i][0], 15, TEXT, "sans-serif-medium", 0);
@@ -1056,7 +1086,7 @@ public class MainActivity extends Activity {
         hero.getChildAt(hero.getChildCount() - 1).setBackgroundColor(0x26FFFFFF);
         LinearLayout stats = row();
         String[][] st = {
-            {km > 0 ? "₹" + String.format(Locale.US, "%.1f", fare / km) : "–", "Avg per km"},
+            {km > 0 ? fmtDist(sp, km) : "\u2013", "Total km"},
             {"₹" + Math.round(keepSum), "You keep"},
             {cnt > 0 ? worth + "/" + cnt : "–", "Worth it"}};
         for (String[] s : st) {
@@ -1102,7 +1132,7 @@ public class MainActivity extends Activity {
             c.setGravity(Gravity.CENTER_HORIZONTAL);
             c.addView(badge((Integer) a[1], SURFACE, ACCENT, 56, LINE));
             label(c, (String) a[0], 12, TEXT, "sans-serif-medium", 8).setGravity(Gravity.CENTER);
-            c.setOnClickListener(v -> { settingsPage = "Filters".equals(a[0]) ? 0 : "Apps".equals(a[0]) ? 7 : -1; show((Integer) a[2]); });
+            c.setOnClickListener(v -> { settingsPage = "Filters".equals(a[0]) ? 0 : "Apps".equals(a[0]) ? 8 : -1; show((Integer) a[2]); });
             qa.addView(c, weight());
         }
         LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(-1, -2);
@@ -1141,9 +1171,8 @@ public class MainActivity extends Activity {
 
         Button sample = button(controls, "Try a sample ride", false, 16);
         sample.setOnClickListener(v -> {
-            AcceptService s = AcceptService.instance;
-            if (s == null) Toast.makeText(this, L("Turn on the service first"), Toast.LENGTH_LONG).show();
-            else { s.showSample(); Toast.makeText(this, L("Sample shown for 8 seconds. It appears over any app."), Toast.LENGTH_LONG).show(); }
+            if (AcceptService.instance == null) Toast.makeText(this, L("Turn on the service first"), Toast.LENGTH_LONG).show();
+            else startActivity(new Intent(this, SampleActivity.class)); // a test screen with several cards
         });
 
         section(recent, "Recent rides", "View all", () -> show(1));
@@ -1190,9 +1219,9 @@ public class MainActivity extends Activity {
     }
 
     // ---------- settings: a short menu, each group on its own one-screen page ----------
-    static final String[] SECTIONS = {"Ride filters", "Accept speed", "Earnings targets", "Vehicle & fuel", "Mileage",
+    static final String[] SECTIONS = {"Ride filters", "Go To & Stay In", "Accept speed", "Earnings targets", "Vehicle & fuel", "Mileage",
         "Goals & alerts", "Display & language", "Driver apps"};
-    static final int[] SECTION_ICONS = {R.drawable.ic_tune, R.drawable.ic_bolt, R.drawable.ic_trending_up, R.drawable.ic_car,
+    static final int[] SECTION_ICONS = {R.drawable.ic_tune, R.drawable.ic_place, R.drawable.ic_bolt, R.drawable.ic_trending_up, R.drawable.ic_car,
         R.drawable.ic_wallet, R.drawable.ic_notifications, R.drawable.ic_settings, R.drawable.ic_check_circle};
     static {
         I18n.a("Accept speed", "स्वीकार की गति", "అంగీకార వేగం");
@@ -1210,6 +1239,18 @@ public class MainActivity extends Activity {
         I18n.a("Pickup up to %s", "पिकअप %s तक", "పిక్‌అప్ %s వరకు");
         I18n.a("Drop up to %s", "ड्रॉप %s तक", "డ్రాప్ %s వరకు");
         I18n.a("Instant within %s", "%s के भीतर तुरंत", "%s లోపల వెంటనే");
+        I18n.a("Dark mode", "डार्क मोड", "డార్క్ మోడ్");
+        I18n.a("Go To & Stay In", "गो टू और स्टे इन", "గో టు & స్టే ఇన్");
+        I18n.a("Go To: prefer rides heading to my areas", "गो टू: मेरे इलाकों की ओर जाने वाली राइड को प्राथमिकता", "గో టు: నా ప్రాంతాల వైపు వెళ్లే రైడ్‌లకు ప్రాధాన్యం");
+        I18n.a("Go To areas", "गो टू इलाके", "గో టు ప్రాంతాలు");
+        I18n.a("Comma-separated place names that appear in drop addresses, for example Kukatpally, KPHB.", "कॉमा से अलग किए गए स्थान के नाम जो ड्रॉप पते में दिखते हैं, जैसे कूकटपल्ली, KPHB।", "డ్రాప్ చిరునామాలో కనిపించే ప్రదేశాల పేర్లు, కామాతో వేరు చేయండి, ఉదా. కూకట్‌పల్లి, KPHB.");
+        I18n.a("Only accept rides that match Go To", "केवल गो टू से मेल खाने वाली राइड स्वीकार करें", "గో టుకు సరిపోయే రైడ్‌లను మాత్రమే అంగీకరించండి");
+        I18n.a("Stay In: prefer rides inside my area", "स्टे इन: मेरे इलाके के अंदर की राइड को प्राथमिकता", "స్టే ఇన్: నా ప్రాంతం లోపలి రైడ్‌లకు ప్రాధాన్యం");
+        I18n.a("Stay In areas", "स्टे इन इलाके", "స్టే ఇన్ ప్రాంతాలు");
+        I18n.a("Place names. Both the pickup and the drop must be inside.", "स्थान के नाम। पिकअप और ड्रॉप दोनों अंदर होने चाहिए।", "ప్రదేశాల పేర్లు. పిక్‌అప్, డ్రాప్ రెండూ లోపల ఉండాలి.");
+        I18n.a("Only accept rides inside Stay In", "केवल स्टे इन के अंदर की राइड स्वीकार करें", "స్టే ఇన్ లోపలి రైడ్‌లను మాత్రమే అంగీకరించండి");
+        I18n.a("Priority: Go To first, then Stay In, then nearest pickup.", "प्राथमिकता: पहले गो टू, फिर स्टे इन, फिर सबसे नज़दीकी पिकअप।", "ప్రాధాన్యం: మొదట గో టు, తర్వాత స్టే ఇన్, తర్వాత దగ్గరి పిక్‌అప్.");
+        I18n.a("Total km", "कुल किमी", "మొత్తం కిమీ");
         I18n.a("Off", "बंद", "ఆఫ్");
     }
 
@@ -1221,19 +1262,25 @@ public class MainActivity extends Activity {
         switch (i) {
             case 0: return profileInfo();
             case 1: {
+                List<String> on = new ArrayList<>();
+                if (sp.getBoolean("goto_on", false)) on.add("Go To");
+                if (sp.getBoolean("stay_on", false)) on.add("Stay In");
+                return on.isEmpty() ? L("Off") : android.text.TextUtils.join("  ·  ", on);
+            }
+            case 2: {
                 String s = F("Delay %s s", n(pref(sp, "delay", 300) / 1000));
                 double near = pref(sp, "near", 0);
                 return near > 0 ? s + "  ·  " + F("Instant within %s", fmtDist(sp, near)) : s;
             }
-            case 2: {
+            case 3: {
                 double t = pref(sp, "target", 8);
                 return L("Bike") + " ₹" + n(pref(sp, "target_Bike", t)) + "  ·  " + L("Auto") + " ₹" + n(pref(sp, "target_Auto", t))
                     + "  ·  " + L("Car") + " ₹" + n(pref(sp, "target_Car", t));
             }
-            case 3: return L(VNAMES[Math.max(0, Arrays.asList(TYPES).indexOf(sp.getString("vehicle", "Bike")))]) + "  ·  ₹" + n(pref(sp, "petrol", 105)) + "/L";
-            case 4: return n(pref(sp, "mile_Bike", 45)) + "  ·  " + n(pref(sp, "mile_Auto", 25)) + "  ·  " + n(pref(sp, "mile_Car", 15)) + " km/L";
-            case 5: return pref(sp, "goal", 0) > 0 ? "₹" + n(pref(sp, "goal", 0)) + " / " + L("Daily goal").toLowerCase() : L("No goal");
-            case 6: return LANG_NAMES[Math.max(0, Arrays.asList(LANGS).indexOf(sp.getString("lang", "en")))];
+            case 4: return L(VNAMES[Math.max(0, Arrays.asList(TYPES).indexOf(sp.getString("vehicle", "Bike")))]) + "  ·  ₹" + n(pref(sp, "petrol", 105)) + "/L";
+            case 5: return n(pref(sp, "mile_Bike", 45)) + "  ·  " + n(pref(sp, "mile_Auto", 25)) + "  ·  " + n(pref(sp, "mile_Car", 15)) + " km/L";
+            case 6: return pref(sp, "goal", 0) > 0 ? "₹" + n(pref(sp, "goal", 0)) + " / " + L("Daily goal").toLowerCase() : L("No goal");
+            case 7: return LANG_NAMES[Math.max(0, Arrays.asList(LANGS).indexOf(sp.getString("lang", "en")))];
             default: {
                 List<String> on = new ArrayList<>();
                 for (String[] a : APPS) if (sp.getString("pkgs", DEFAULT_PKGS).contains(a[1].split(",")[0])) on.add(a[0]);
@@ -1301,6 +1348,26 @@ public class MainActivity extends Activity {
                 break;
             }
             case 1: {
+                CheckBox goOn = check("Go To: prefer rides heading to my areas", sp.getBoolean("goto_on", false));
+                c.addView(goOn);
+                EditText goAreas = field(c, "Go To areas", "Comma-separated place names that appear in drop addresses, for example Kukatpally, KPHB.", sp.getString("goto_areas", ""), InputType.TYPE_CLASS_TEXT, 4);
+                CheckBox goStrict = check("Only accept rides that match Go To", sp.getBoolean("goto_strict", false));
+                c.addView(goStrict);
+                divider(c, 12);
+                CheckBox stayOn = check("Stay In: prefer rides inside my area", sp.getBoolean("stay_on", false));
+                LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(-1, -2);
+                sl.topMargin = dp(12);
+                c.addView(stayOn, sl);
+                EditText stayAreas = field(c, "Stay In areas", "Place names. Both the pickup and the drop must be inside.", sp.getString("stay_areas", ""), InputType.TYPE_CLASS_TEXT, 4);
+                CheckBox stayStrict = check("Only accept rides inside Stay In", sp.getBoolean("stay_strict", false));
+                c.addView(stayStrict);
+                label(c, "Priority: Go To first, then Stay In, then nearest pickup.", 13, SUBTLE, "sans-serif", 12);
+                save[0] = () -> sp.edit().putBoolean("goto_on", goOn.isChecked()).putString("goto_areas", goAreas.getText().toString())
+                    .putBoolean("goto_strict", goStrict.isChecked()).putBoolean("stay_on", stayOn.isChecked())
+                    .putString("stay_areas", stayAreas.getText().toString()).putBoolean("stay_strict", stayStrict.isChecked()).apply();
+                break;
+            }
+            case 2: {
                 EditText delay = field(c, "Response delay (seconds)", "Wait this long before accepting.", n(pref(sp, "delay", 300) / 1000), num, 0);
                 EditText near = field(c, F("Instant-accept radius (%s)", unitName(sp)), "Rides with pickup this close are accepted with no delay. Use 0 to turn off.", n2(toUi(sp, pref(sp, "near", 0))), num, 16);
                 save[0] = () -> {
@@ -1310,7 +1377,7 @@ public class MainActivity extends Activity {
                 };
                 break;
             }
-            case 2: {
+            case 3: {
                 String t0 = sp.getString("target", "8");
                 EditText tBike = field(c, "Bike / scooty target (₹ per km)", "Rides at or above this are marked Worth it.", sp.getString("target_Bike", t0), num, 0);
                 EditText tAuto = field(c, "Auto target (₹ per km)", "Rides at or above this are marked Worth it.", sp.getString("target_Auto", t0), num, 16);
@@ -1319,7 +1386,7 @@ public class MainActivity extends Activity {
                     .putString("target_Car", tCar.getText().toString()).apply();
                 break;
             }
-            case 3: {
+            case 4: {
                 label(c, "My vehicle", 14, TEXT, "sans-serif-medium", 0);
                 String[] veh = {sp.getString("vehicle", "Bike")};
                 segmented(c, VNAMES, Math.max(0, Arrays.asList(TYPES).indexOf(veh[0])), 8, k -> veh[0] = TYPES[k]);
@@ -1330,7 +1397,7 @@ public class MainActivity extends Activity {
                     .putString("fixed", fixed.getText().toString()).apply();
                 break;
             }
-            case 4: {
+            case 5: {
                 EditText mBike = field(c, "Bike / scooty mileage (km per litre)", "Used to work out fuel cost per km.", sp.getString("mile_Bike", "45"), num, 0);
                 EditText mAuto = field(c, "Auto mileage (km per litre)", "Used to work out fuel cost per km.", sp.getString("mile_Auto", "25"), num, 16);
                 EditText mCar = field(c, "Car mileage (km per litre)", "Used to work out fuel cost per km.", sp.getString("mile_Car", "15"), num, 16);
@@ -1338,7 +1405,7 @@ public class MainActivity extends Activity {
                     .putString("mile_Car", mCar.getText().toString()).apply();
                 break;
             }
-            case 5: {
+            case 6: {
                 EditText goal = field(c, "Daily earnings goal (₹)", "Shows progress on the home screen. Use 0 to hide.", sp.getString("goal", "0"), num, 0);
                 CheckBox alert = check("Vibrate and beep for Worth it rides", sp.getBoolean("alert", true));
                 CheckBox reject = check("Decline rides rated Low", sp.getBoolean("reject", false));
@@ -1351,10 +1418,11 @@ public class MainActivity extends Activity {
                     .putBoolean("reject", reject.isChecked()).apply();
                 break;
             }
-            case 6: {
+            case 7: {
                 label(c, "Language", 14, TEXT, "sans-serif-medium", 0);
                 String[] lang = {sp.getString("lang", "en")};
                 segmented(c, LANG_NAMES, Math.max(0, Arrays.asList(LANGS).indexOf(lang[0])), 8, k -> lang[0] = LANGS[k]);
+                CheckBox darkBox = check("Dark mode", sp.getBoolean("dark", true));
                 CheckBox bubble = check("Show the floating Vamsify bubble over driver apps", sp.getBoolean("bubble", true));
                 CheckBox trip = check("Show trip details after accepting", sp.getBoolean("trip", true));
                 CheckBox large = check("Large text and bigger buttons", sp.getBoolean("large", false));
@@ -1363,12 +1431,13 @@ public class MainActivity extends Activity {
                 CheckBox summary = check("Daily summary at 9 PM", sp.getBoolean("summary", true));
                 LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(-1, -2);
                 cl.topMargin = dp(12);
-                c.addView(bubble, cl);
+                c.addView(darkBox, cl);
+                c.addView(bubble, new LinearLayout.LayoutParams(-1, -2));
                 for (CheckBox cb : new CheckBox[]{trip, large, onehand, notif, summary}) c.addView(cb, new LinearLayout.LayoutParams(-1, -2));
                 save[0] = () -> {
-                    redraw[0] = !lang[0].equals(sp.getString("lang", "en")) || large.isChecked() != sp.getBoolean("large", false)
+                    redraw[0] = darkBox.isChecked() != sp.getBoolean("dark", true) || !lang[0].equals(sp.getString("lang", "en")) || large.isChecked() != sp.getBoolean("large", false)
                         || onehand.isChecked() != sp.getBoolean("onehand", false);
-                    sp.edit().putString("lang", lang[0]).putBoolean("bubble", bubble.isChecked()).putBoolean("trip", trip.isChecked())
+                    sp.edit().putString("lang", lang[0]).putBoolean("dark", darkBox.isChecked()).putBoolean("bubble", bubble.isChecked()).putBoolean("trip", trip.isChecked())
                         .putBoolean("large", large.isChecked()).putBoolean("onehand", onehand.isChecked())
                         .putBoolean("notif", notif.isChecked()).putBoolean("summary", summary.isChecked()).apply();
                     if (notif.isChecked() || summary.isChecked()) askNotificationPermission();
@@ -1395,11 +1464,14 @@ public class MainActivity extends Activity {
     // shell
     // =====================================================================
     @Override protected void onCreate(Bundle b) {
-        super.onCreate(b);
         sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        applyTheme(sp);
+        setTheme(dark ? android.R.style.Theme_Material_NoActionBar : android.R.style.Theme_Material_Light_NoActionBar);
+        super.onCreate(b);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(SURFACE);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        getWindow().getDecorView().setSystemUiVisibility(dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            | (Build.VERSION.SDK_INT >= 26 ? View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR : 0));
 
         LinearLayout frame = col();
         content = new FrameLayout(this);

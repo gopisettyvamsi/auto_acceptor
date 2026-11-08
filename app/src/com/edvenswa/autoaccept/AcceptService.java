@@ -53,7 +53,7 @@ public class AcceptService extends AccessibilityService {
     static final Pattern FARE = Pattern.compile("(?:₹|Rs\\.?|INR)\\s*([0-9]+(?:\\.[0-9]+)?)", Pattern.CASE_INSENSITIVE);
     static final Pattern KM = Pattern.compile("([0-9]+(?:\\.[0-9]+)?)\\s*km", Pattern.CASE_INSENSITIVE);
     // a distance on its own short line: "0.9 km" or "400 m" (meters are converted to km)
-    static final Pattern DIST_LINE = Pattern.compile("^\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(km|m)\\b", Pattern.CASE_INSENSITIVE);
+    static final Pattern DIST_LINE = FareParser.DIST_LINE;
     static final Pattern MINS = Pattern.compile("([0-9]+)\\s*min", Pattern.CASE_INSENSITIVE);
     static final String[] LABELS = {"Accept", "Accept ride", "Accept order", "Accept trip"};
     static final String[] REJECT = {"Reject", "Decline", "Skip"};
@@ -66,6 +66,9 @@ public class AcceptService extends AccessibilityService {
         I18n.a("Pickup %s is farther than your limit of %s", "पिकअप %s आपकी सीमा %s से अधिक दूर है", "పిక్‌అప్ %s మీ పరిమితి %s కంటే ఎక్కువ దూరం");
         I18n.a("Drop %s is farther than your limit of %s", "ड्रॉप %s आपकी सीमा %s से अधिक दूर है", "డ్రాప్ %s మీ పరిమితి %s కంటే ఎక్కువ దూరం");
         I18n.a("Drop distance not shown, so it can't be checked", "ड्रॉप दूरी नहीं दिखी, इसलिए जाँच नहीं हो सकती", "డ్రాప్ దూరం చూపలేదు, అందువల్ల తనిఖీ చేయలేము");
+        I18n.a("Drop is outside your Go To areas", "ड्रॉप आपके गो टू इलाकों से बाहर है", "డ్రాప్ మీ గో టు ప్రాంతాల వెలుపల ఉంది");
+        I18n.a("Ride is outside your Stay In areas", "राइड आपके स्टे इन इलाकों से बाहर है", "రైడ్ మీ స్టే ఇన్ ప్రాంతాల వెలుపల ఉంది");
+        I18n.a("Ride is outside your Go To and Stay In areas", "राइड आपके गो टू और स्टे इन इलाकों से बाहर है", "రైడ్ మీ గో టు, స్టే ఇన్ ప్రాంతాల వెలుపల ఉంది");
         I18n.a("No distance", "दूरी नहीं", "దూరం లేదు");
         I18n.a("Keep", "बचत", "మిగులు");
         I18n.a("Ride accepted", "राइड स्वीकार की गई", "రైడ్ అంగీకరించబడింది");
@@ -86,10 +89,12 @@ public class AcceptService extends AccessibilityService {
 
     /** One ride request card on the driver app's screen. */
     static class Card {
-        AccessibilityNodeInfo accept, node;
+        AccessibilityNodeInfo accept, node, reject;
         Rect acceptBounds = new Rect(), fareBounds = new Rect();
         String text = "", pickupAddr = "", dropAddr = "", type = "Bike", key = "", reason;
-        double fare, perKm, dist, fuel;
+        double fare, base, bonus, perKm, dist, fuel; // fare = base + any extra the customer added
+        int rank;      // 2 = matches Go To, 1 = matches Stay In, 0 = neither
+        String tag = "";
         Double pickup, drop;
         int mins = -1, verdict = -1;
     }
@@ -104,6 +109,7 @@ public class AcceptService extends AccessibilityService {
     final List<int[]> chipBase = new ArrayList<>(); // anchor of each chip before the user's drag offset
     int chipDx, chipDy;
     LinearLayout tripView;
+    int pBg, pFg, pSub, pLine, pAcc; // trip popup colours, set from the theme each time it opens
     ImageView bubble;
     WindowManager.LayoutParams bubbleLp;
 
@@ -168,8 +174,10 @@ public class AcceptService extends AccessibilityService {
         SharedPreferences sp = prefs();
         if (e.getPackageName() == null) return;
         String pkg = e.getPackageName().toString();
+        if (pkg.equals(getPackageName())) { AccessibilityNodeInfo es = e.getSource(); if (es != null && isOverlay(es)) return; }
         events++; lastPkg = pkg; // diagnostics, shown via long-press on the app name
-        boolean watched = sp.getString("pkgs", MainActivity.DEFAULT_PKGS).contains(pkg);
+        boolean watched = sp.getString("pkgs", MainActivity.DEFAULT_PKGS).contains(pkg)
+            || (SampleActivity.visible && pkg.equals(getPackageName())); // the in-app test screen counts as a driver app
 
         // floating round bubble: visible over the driver app, hidden when another app comes to the front
         if (sp.getBoolean("bubble", true)) {
@@ -187,8 +195,16 @@ public class AcceptService extends AccessibilityService {
         analyze(pkg, e.getSource());
     }
 
+    static boolean isOverlay(AccessibilityNodeInfo n) {
+        AccessibilityWindowInfo w = n.getWindow();
+        return w != null && w.getType() == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY;
+    }
+
     String trailPkg = "";
     final Runnable trail = () -> analyze(trailPkg, null);
+    String curPkg = "";
+    // Rapido slides cards around without telling accessibility, so while cards are showing we look again every 0.7 s
+    final Runnable tick = () -> { if (!chips.isEmpty()) analyze(curPkg, null); };
 
     void analyze(String pkg, AccessibilityNodeInfo src) {
         SharedPreferences sp = prefs();
@@ -200,10 +216,11 @@ public class AcceptService extends AccessibilityService {
 
         List<AccessibilityNodeInfo> roots = new ArrayList<>();
         for (AccessibilityWindowInfo w : getWindows()) {
+            if (w.getType() == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) continue; // our own chips, bubble and popup are never card text
             AccessibilityNodeInfo r = w.getRoot();
             if (r != null && pkg.contentEquals(r.getPackageName())) roots.add(r);
         }
-        if (src != null) { // overlays: read the window that fired the event
+        if (src != null && !isOverlay(src)) { // read the window that fired the event
             AccessibilityNodeInfo top = src;
             for (AccessibilityNodeInfo p = src.getParent(); p != null; p = p.getParent()) top = p;
             roots.add(top);
@@ -214,29 +231,27 @@ public class AcceptService extends AccessibilityService {
         }
         if (roots.isEmpty()) return;
 
-        // every Accept button on screen = one ride request card each
+        // read each ride card by where its text sits on screen, so several cards (and cards whose Accept is hidden) all work
         StringBuilder text = new StringBuilder(), dump = new StringBuilder();
-        List<AccessibilityNodeInfo> accepts = new ArrayList<>();
-        for (AccessibilityNodeInfo r : roots) { collect(r, text, dump); findAll(r, LABELS, accepts); }
-        List<Card> cards = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        for (AccessibilityNodeInfo a : accepts) {
-            Rect r = new Rect();
-            a.getBoundsInScreen(r);
-            if (!seen.add(r.toShortString())) continue; // same window reached twice
-            Card c = buildCard(a, sp);
-            if (c != null) { c.acceptBounds = r; cards.add(c); }
-        }
+        List<AccessibilityNodeInfo> accepts = new ArrayList<>(), rejects = new ArrayList<>();
+        for (AccessibilityNodeInfo r : roots) { collect(r, text, dump); findAll(r, LABELS, accepts); findAll(r, REJECT, rejects); }
+        List<Card> cards = readCards(roots, accepts, rejects);
+        if (cards.isEmpty()) cards = cardsFromButtons(accepts, sp);
         lastCards = cards;
 
         if (cards.isEmpty()) {
             alerted.clear(); skipped.clear();
+            h.removeCallbacks(tick);
             removeChips();
             sp.edit().putString("dump", "pkg=" + pkg + "\nresult=no ride request on screen\n\n" + dump).apply();
             return;
         }
 
         StringBuilder summary = new StringBuilder();
+        // Go To / Stay In: the driver's own priority rules, matched against the addresses on the card
+        boolean goOn = sp.getBoolean("goto_on", false), stayOn = sp.getBoolean("stay_on", false);
+        boolean strictGo = goOn && sp.getBoolean("goto_strict", false), strictStay = stayOn && sp.getBoolean("stay_strict", false);
+        String goAreas = sp.getString("goto_areas", ""), stayAreas = sp.getString("stay_areas", "");
         for (Card c : cards) {
             double dist = (c.pickup == null ? 0 : c.pickup) + (c.drop == null ? 0 : c.drop);
             c.type = MainActivity.rideType(sp, c.text);
@@ -246,6 +261,13 @@ public class AcceptService extends AccessibilityService {
             c.verdict = Double.isNaN(c.perKm) ? -1 : MainActivity.verdict(c.perKm, MainActivity.targetFor(sp, c.type));
             c.key = c.fare + "|" + c.pickup + "|" + c.drop;
             c.reason = auto ? decide(sp, c.fare, c.pickup, c.drop) : null;
+            boolean go = goOn && AreaMatch.hasAny(c.dropAddr, goAreas);
+            boolean stay = stayOn && AreaMatch.hasAny(c.pickupAddr, stayAreas) && AreaMatch.hasAny(c.dropAddr, stayAreas);
+            c.rank = go ? 2 : stay ? 1 : 0;
+            c.tag = go ? "Go To" : stay ? "Stay In" : "";
+            if (auto && c.reason == null && (strictGo || strictStay) && !((strictGo && go) || (strictStay && stay)))
+                c.reason = I18n.t(sp, strictGo && strictStay ? "Ride is outside your Go To and Stay In areas"
+                    : strictGo ? "Drop is outside your Go To areas" : "Ride is outside your Stay In areas");
             summary.append("card fare=").append(c.fare).append(" pickup=").append(c.pickup).append(" drop=").append(c.drop)
                 .append(" mins=").append(c.mins).append(" type=").append(c.type)
                 .append(" reason=").append(c.reason).append('\n');
@@ -253,6 +275,9 @@ public class AcceptService extends AccessibilityService {
         sp.edit().putString("dump", "pkg=" + pkg + " cards=" + cards.size() + "\n" + summary + "\n" + dump).apply();
 
         if (showChip) showChips(cards); else removeChips();
+        curPkg = pkg;
+        h.removeCallbacks(tick);
+        if (showChip) h.postDelayed(tick, 700);
 
         for (Card c : cards) {
             if (c.verdict == 2 && sp.getBoolean("alert", true) && alerted.add(c.key)) alert();
@@ -263,29 +288,33 @@ public class AcceptService extends AccessibilityService {
         Card pick = null;
         if (auto && now - lastClick >= 4000)
             for (Card c : cards)
-                if (c.reason == null && (pick == null || nearer(c, pick))) pick = c;
+                if (c.accept != null && c.reason == null && (pick == null || better(c, pick))) pick = c;
         double near = MainActivity.pref(sp, "near", 0); // instant-accept radius: nearby pickups are tapped with no delay
         if (pick != null) {
             final Card chosen = pick;
             long delay = near > 0 && chosen.pickup != null && chosen.pickup <= near ? 0 : (long) MainActivity.pref(sp, "delay", 300);
             lastClick = now; autoTapUntil = now + delay + 2500;
-            MainActivity.addHistory(sp, pkg, chosen.fare, chosen.pickup, chosen.drop, chosen.type);
+            if (!pkg.equals(getPackageName())) MainActivity.addHistory(sp, pkg, chosen.fare, chosen.pickup, chosen.drop, chosen.type);
             h.postDelayed(() -> tap(chosen.accept), delay);
             if (trip) h.postDelayed(() -> showTrip(chosen), delay + 700);
         } else if (reject && now - lastClick >= 4000) {
             // optional: decline a card rated Low (only when nothing was accepted)
             for (Card c : cards) {
                 if (c.verdict != 0) continue;
-                List<AccessibilityNodeInfo> rj = new ArrayList<>();
-                findAll(c.node, REJECT, rj);
-                if (!rj.isEmpty()) {
+                if (c.reject != null) {
+                    final AccessibilityNodeInfo rj = c.reject;
                     lastClick = now;
-                    h.postDelayed(() -> tap(rj.get(0)), (long) MainActivity.pref(sp, "delay", 300));
+                    h.postDelayed(() -> tap(rj), (long) MainActivity.pref(sp, "delay", 300));
                     break;
                 }
             }
         }
     }
+
+    static String shorten(String s) { return s.length() > 90 ? s.substring(0, 90) + "\u2026" : s; }
+
+    /** Go To beats Stay In beats neither; ties go to the nearest pickup. */
+    static boolean better(Card a, Card b) { return a.rank != b.rank ? a.rank > b.rank : nearer(a, b); }
 
     static boolean nearer(Card a, Card b) {
         return (a.pickup == null ? 1e9 : a.pickup) < (b.pickup == null ? 1e9 : b.pickup);
@@ -301,11 +330,12 @@ public class AcceptService extends AccessibilityService {
         src.getBoundsInScreen(r);
         int slack = (int) (40 * density());
         for (Card c : lastCards) {
+            if (c.acceptBounds.isEmpty()) continue;
             Rect a = new Rect(c.acceptBounds);
             a.inset(-slack, -slack);
             if (a.contains(r.centerX(), r.centerY())) {
                 lastClick = now;
-                MainActivity.addHistory(sp, pkg, c.fare, c.pickup, c.drop, c.type);
+                if (!pkg.equals(getPackageName())) MainActivity.addHistory(sp, pkg, c.fare, c.pickup, c.drop, c.type);
                 if (sp.getBoolean("trip", true)) showTrip(c);
                 return;
             }
@@ -313,8 +343,93 @@ public class AcceptService extends AccessibilityService {
     }
 
     // =====================================================================
-    // reading a card
+    // reading the cards
     // =====================================================================
+    /** Reads every ride card on screen by where its text sits (see CardLayout); each card gets its own Accept and Reject. */
+    List<Card> readCards(List<AccessibilityNodeInfo> roots, List<AccessibilityNodeInfo> accepts, List<AccessibilityNodeInfo> rejects) {
+        List<CardLayout.Box> boxes = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (AccessibilityNodeInfo r : roots) addBoxes(r, boxes, seen);
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        List<Card> out = new ArrayList<>();
+        for (CardLayout.Region rg : CardLayout.split(boxes, dm.widthPixels, dm.heightPixels)) {
+            List<String> lines = rg.lines();
+            String t = TextUtils.join("\n", lines);
+            double[] fs = FareParser.parse(lines);
+            List<Double> kms = distances(lines, t);
+            if (fs == null || kms.isEmpty()) continue;
+            Card c = fromLines(lines, t, fs, kms);
+            c.node = (AccessibilityNodeInfo) rg.head.ref;
+            c.fareBounds.set(rg.head.left, rg.head.top, rg.head.right, rg.head.bottom);
+            c.accept = firstIn(accepts, rg.start, rg.end); // may be null when the app hides this card's button
+            if (c.accept != null) c.accept.getBoundsInScreen(c.acceptBounds);
+            c.reject = firstIn(rejects, rg.start, rg.end);
+            out.add(c);
+        }
+        return out;
+    }
+
+    /** Fallback for layouts CardLayout cannot read: climb from each Accept button to the container holding a fare and a distance. */
+    List<Card> cardsFromButtons(List<AccessibilityNodeInfo> accepts, SharedPreferences sp) {
+        List<Card> cards = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (AccessibilityNodeInfo a : accepts) {
+            Rect r = new Rect();
+            a.getBoundsInScreen(r);
+            if (!seen.add(r.toShortString())) continue; // same window reached twice
+            Card c = buildCard(a, sp);
+            if (c != null) { c.acceptBounds = r; cards.add(c); }
+        }
+        return cards;
+    }
+
+    static AccessibilityNodeInfo firstIn(List<AccessibilityNodeInfo> nodes, int start, int end) {
+        AccessibilityNodeInfo best = null;
+        int bestTop = Integer.MAX_VALUE;
+        Rect r = new Rect();
+        for (AccessibilityNodeInfo n : nodes) {
+            n.getBoundsInScreen(r);
+            if (r.top >= start && r.top < end && r.top < bestTop) { best = n; bestTop = r.top; }
+        }
+        return best;
+    }
+
+    static void addBoxes(AccessibilityNodeInfo n, List<CardLayout.Box> out, Set<String> seen) {
+        if (n == null) return;
+        CharSequence tx = n.getText(), d = n.getContentDescription();
+        String s = (tx != null ? tx.toString() : d != null ? d.toString() : "").trim();
+        if (!s.isEmpty()) {
+            Rect b = new Rect();
+            n.getBoundsInScreen(b);
+            if (!b.isEmpty() && seen.add(b.toShortString() + s)) out.add(new CardLayout.Box(s, b.left, b.top, b.right, b.bottom, n));
+        }
+        for (int i = 0; i < n.getChildCount(); i++) addBoxes(n.getChild(i), out, seen);
+    }
+
+    /** Builds a Card from a card's text lines: price, distances, pickup and drop places, drop duration. */
+    static Card fromLines(List<String> lines, String t, double[] fs, List<Double> kms) {
+        Card c = new Card();
+        c.text = t; c.fare = fs[0] + fs[1]; c.base = fs[0]; c.bonus = fs[1];
+        c.pickup = kms.get(0);
+        c.drop = kms.size() > 1 ? kms.get(1) : null;
+        int ik = -1, ik2 = -1;
+        for (int i = 0; i < lines.size(); i++) {
+            String s = lines.get(i);
+            if (s.length() <= 24 && DIST_LINE.matcher(s).find()) {
+                if (ik < 0) ik = i; else { ik2 = i; break; }
+            }
+        }
+        if (ik >= 0) c.pickupAddr = place(lines, ik + 1, ik2 < 0 ? lines.size() : ik2);
+        if (ik2 >= 0) {
+            c.dropAddr = place(lines, ik2 + 1, lines.size());
+            for (int i = ik2; i < Math.min(lines.size(), ik2 + 4); i++) {
+                Matcher m = MINS.matcher(lines.get(i));
+                if (m.find()) { c.mins = Integer.parseInt(m.group(1)); break; }
+            }
+        }
+        return c;
+    }
+
     /** Climbs from an Accept button to the smallest container that holds one fare and a distance (the card). */
     Card buildCard(AccessibilityNodeInfo accept, SharedPreferences sp) {
         for (AccessibilityNodeInfo p = accept.getParent(); p != null; p = p.getParent()) {
@@ -322,33 +437,13 @@ public class AcceptService extends AccessibilityService {
             List<String> lines = new ArrayList<>();
             gather(p, lines);
             String t = TextUtils.join("\n", lines);
-            Double fare = first(FARE, t);
+            double[] fs = FareParser.parse(lines);
             List<Double> kms = distances(lines, t);
-            if (fare == null || kms.isEmpty()) continue;
-
-            Card c = new Card();
-            c.accept = accept; c.node = p; c.text = t; c.fare = fare;
-            c.pickup = kms.get(0);
-            c.drop = kms.size() > 1 ? kms.get(1) : null;
+            if (fs == null || kms.isEmpty()) continue;
+            Card c = fromLines(lines, t, fs, kms);
+            c.accept = accept; c.node = p;
             AccessibilityNodeInfo fn = fareNode(p);
             if (fn != null) fn.getBoundsInScreen(c.fareBounds);
-
-            // pickup and drop places, and the drop duration, from the card's text lines
-            int ik = -1, ik2 = -1;
-            for (int i = 0; i < lines.size(); i++) {
-                String s = lines.get(i);
-                if (s.length() <= 24 && DIST_LINE.matcher(s).find()) {
-                    if (ik < 0) ik = i; else { ik2 = i; break; }
-                }
-            }
-            if (ik >= 0) c.pickupAddr = place(lines, ik + 1, ik2 < 0 ? lines.size() : ik2);
-            if (ik2 >= 0) {
-                c.dropAddr = place(lines, ik2 + 1, lines.size());
-                for (int i = ik2; i < Math.min(lines.size(), ik2 + 4); i++) {
-                    Matcher m = MINS.matcher(lines.get(i));
-                    if (m.find()) { c.mins = Integer.parseInt(m.group(1)); break; }
-                }
-            }
             return c;
         }
         return null;
@@ -373,7 +468,7 @@ public class AcceptService extends AccessibilityService {
         for (int i = from; i < Math.min(to, lines.size()); i++) {
             String s = lines.get(i).trim();
             if (s.length() > 10 && !DIST_LINE.matcher(s).find() && !MINS.matcher(s).find() && !FARE.matcher(s).find())
-                return s.length() > 90 ? s.substring(0, 90) + "…" : s;
+                return s;
         }
         return "";
     }
@@ -433,7 +528,7 @@ public class AcceptService extends AccessibilityService {
         return logoBmp;
     }
 
-    /** Small dark pill like Rapido's own chip: logo, big earnings per km, and two tiny lines (rating, what you keep). */
+    /** Dark pill like Rapido's own chip, stretched longer at the same height: logo, earnings per km, rating and pickup, what you keep and the fuel cost. */
     class ChipView extends LinearLayout {
         final TextView main, verdict, keep;
 
@@ -442,18 +537,19 @@ public class AcceptService extends AccessibilityService {
             float d = density();
             setOrientation(HORIZONTAL);
             setGravity(Gravity.CENTER_VERTICAL);
-            setPadding((int) (5 * d), (int) (4 * d), (int) (12 * d), (int) (4 * d));
+            setMinimumWidth((int) (214 * d));
+            setPadding((int) (6 * d), (int) (3 * d), (int) (16 * d), (int) (3 * d));
             ImageView logoView = new ImageView(AcceptService.this);
             if (logo() != null) logoView.setImageBitmap(logoBmp);
             addView(logoView, new LinearLayout.LayoutParams((int) (22 * d), (int) (22 * d)));
             main = new TextView(AcceptService.this);
-            main.setTextSize(15); main.setTextColor(Color.WHITE); main.setTypeface(Typeface.DEFAULT_BOLD);
-            main.setPadding((int) (7 * d), 0, (int) (9 * d), 0);
+            main.setTextSize(16); main.setTextColor(Color.WHITE); main.setTypeface(Typeface.DEFAULT_BOLD);
+            main.setPadding((int) (8 * d), 0, (int) (14 * d), 0);
             addView(main);
             LinearLayout col = new LinearLayout(AcceptService.this);
             col.setOrientation(VERTICAL);
             verdict = new TextView(AcceptService.this);
-            verdict.setTextSize(9.5f);
+            verdict.setTextSize(9.5f); verdict.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
             keep = new TextView(AcceptService.this);
             keep.setTextSize(11); keep.setTypeface(Typeface.DEFAULT_BOLD);
             col.addView(verdict); col.addView(keep);
@@ -470,15 +566,16 @@ public class AcceptService extends AccessibilityService {
             setBackground(bg);
             if (c.verdict < 0) {
                 main.setText("₹" + Math.round(c.fare));
-                verdict.setText(I18n.t(sp, "No distance")); verdict.setTextColor(0xFFCBD5E1);
+                verdict.setText(I18n.t(sp, "No distance")); verdict.setTextColor(0xFFE2E8F0);
                 keep.setText("");
                 return;
             }
             main.setText("₹" + String.format(Locale.US, "%.2f", c.perKm) + "/km");
-            verdict.setText(I18n.t(sp, CHIP_NAME[c.verdict]) + (c.pickup == null ? "" : "  ·  " + MainActivity.fmtDist(sp, c.pickup)));
+            verdict.setText(MainActivity.fmtDist(sp, c.dist) + " " + I18n.t(sp, "total") + "  \u00B7  " + I18n.t(sp, CHIP_NAME[c.verdict])
+                + (c.tag.isEmpty() ? "" : "  \u00B7  " + c.tag));
             verdict.setTextColor(word[c.verdict]);
             double kept = c.fare - c.fuel;
-            keep.setText(I18n.t(sp, "Keep") + " ₹" + Math.round(kept));
+            keep.setText(I18n.t(sp, "Keep") + " ₹" + Math.round(kept) + "  ·  " + I18n.t(sp, "fuel") + " ₹" + Math.round(c.fuel));
             keep.setTextColor(kept >= 0 ? 0xFF5BD68A : 0xFFFF8A80);
         }
     }
@@ -488,11 +585,11 @@ public class AcceptService extends AccessibilityService {
         DisplayMetrics dm = getResources().getDisplayMetrics();
         if (chips.isEmpty()) { chipDx = sp.getInt("chip_dx", 0); chipDy = sp.getInt("chip_dy", 0); }
         while (chips.size() > cs.size()) { removeChipView(chips.remove(chips.size() - 1)); chipBase.remove(chipBase.size() - 1); }
-        while (chips.size() < cs.size()) { chips.add(newChip()); chipBase.add(new int[2]); }
+        while (chips.size() < cs.size()) { chips.add(newChip()); chipBase.add(new int[3]); }
         for (int i = 0; i < cs.size(); i++) {
             Card c = cs.get(i);
             chips.get(i).bind(c, sp);
-            chipBase.get(i)[0] = pos.get(i)[0]; chipBase.get(i)[1] = pos.get(i)[1];
+            chipBase.get(i)[0] = pos.get(i)[0]; chipBase.get(i)[1] = pos.get(i)[1]; chipBase.get(i)[2] = cs.get(i).fareBounds.height();
         }
         relayoutChips(dm);
         h.removeCallbacks(hideChips);
@@ -500,12 +597,20 @@ public class AcceptService extends AccessibilityService {
     }
 
     void relayoutChips(DisplayMetrics dm) {
+        float d = density();
+        int margin = (int) (8 * d);
         for (int i = 0; i < chips.size(); i++) {
             ChipView t = chips.get(i);
             WindowManager.LayoutParams lp = (WindowManager.LayoutParams) t.getLayoutParams();
-            int w = t.getWidth() > 0 ? t.getWidth() : (int) (110 * density());
-            lp.x = Math.max(0, Math.min(dm.widthPixels - w, chipBase.get(i)[0] + chipDx));
-            lp.y = Math.max(0, chipBase.get(i)[1] + chipDy);
+            t.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            int w = Math.max(t.getWidth(), t.getMeasuredWidth());
+            int bx = chipBase.get(i)[0], by = chipBase.get(i)[1];
+            if (bx + w > dm.widthPixels - margin) { // no room beside the fare: tuck the chip just under it, at the right edge
+                bx = dm.widthPixels - margin - w;
+                by += chipBase.get(i)[2] + (int) (4 * d);
+            }
+            lp.x = Math.max(0, Math.min(dm.widthPixels - margin - w, bx + chipDx));
+            lp.y = Math.max(0, by + chipDy);
             try { wm().updateViewLayout(t, lp); } catch (RuntimeException ex) { /* removed meanwhile */ }
         }
     }
@@ -545,30 +650,9 @@ public class AcceptService extends AccessibilityService {
 
     void removeChips() {
         h.removeCallbacks(hideChips);
+        h.removeCallbacks(tick);
         for (ChipView t : chips) removeChipView(t);
         chips.clear(); chipBase.clear();
-    }
-
-    /** Shows a made-up offer (chip, then the trip details) so the user can see both without a real ride. */
-    void showSample() {
-        SharedPreferences sp = prefs();
-        Card c = new Card();
-        c.type = sp.getString("vehicle", "Bike");
-        c.fare = 46; c.pickup = 0.9; c.drop = 5.1; c.mins = 12;
-        c.pickupAddr = I18n.t(sp, "Sample pickup street, Gachibowli");
-        c.dropAddr = I18n.t(sp, "Sample drop point, Hitech City");
-        c.dist = 6.0; c.perKm = MainActivity.perKm(c.fare, c.pickup, c.drop);
-        c.fuel = MainActivity.costPerKm(sp, c.type) * c.dist;
-        c.verdict = MainActivity.verdict(c.perKm, MainActivity.targetFor(sp, c.type));
-        DisplayMetrics dm = getResources().getDisplayMetrics();
-        List<Card> one = new ArrayList<>();
-        one.add(c);
-        List<int[]> pos = new ArrayList<>();
-        pos.add(new int[]{dm.widthPixels / 3, dm.heightPixels / 3});
-        render(sp, one, pos);
-        h.removeCallbacks(hideChips);
-        h.postDelayed(hideChips, 8000);
-        h.postDelayed(() -> showTrip(c), 2500);
     }
 
     // =====================================================================
@@ -577,6 +661,9 @@ public class AcceptService extends AccessibilityService {
     void showTrip(Card c) {
         removeTrip();
         SharedPreferences sp = prefs();
+        boolean dk = sp.getBoolean("dark", true);
+        pBg = dk ? 0xFF151A25 : Color.WHITE; pFg = dk ? 0xFFF5F7FA : 0xFF0B0F19; pSub = dk ? 0xFFD2D8E4 : 0xFF1F2937;
+        pLine = dk ? 0xFF2A3345 : 0xFFE6E8EE; pAcc = dk ? 0xFF5B8CFF : 0xFF1F4FD8;
         float d = density();
         DisplayMetrics dm = getResources().getDisplayMetrics();
 
@@ -584,10 +671,10 @@ public class AcceptService extends AccessibilityService {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding((int) (20 * d), (int) (18 * d), (int) (20 * d), (int) (16 * d));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.WHITE); bg.setCornerRadius(20 * d); bg.setStroke((int) d, 0xFFE6E8EE);
+        bg.setColor(pBg); bg.setCornerRadius(20 * d); bg.setStroke((int) d, pLine);
         box.setBackground(bg);
 
-        TextView title = text(I18n.t(sp, "Ride accepted"), 20, 0xFF14171F, true);
+        TextView title = text(I18n.t(sp, "Ride accepted"), 20, pFg, true);
         box.addView(title);
         if (c.verdict >= 0) {
             TextView chip = text(I18n.t(sp, CHIP_NAME[c.verdict]) + "  ·  ₹" + String.format(Locale.US, "%.2f", c.perKm) + "/km", 13, CHIP_FG[c.verdict], true);
@@ -600,13 +687,13 @@ public class AcceptService extends AccessibilityService {
             box.addView(chip, cl);
         }
 
-        info(box, I18n.t(sp, "Pickup"), c.pickupAddr.isEmpty() ? "–" : c.pickupAddr,
+        info(box, I18n.t(sp, "Pickup"), c.pickupAddr.isEmpty() ? "\u2013" : shorten(c.pickupAddr),
             c.pickup == null ? "" : MainActivity.fmtDist(sp, c.pickup) + " " + I18n.t(sp, "away"));
         String dropSub = (c.drop == null ? "" : MainActivity.fmtDist(sp, c.drop)) + (c.mins >= 0 ? "  ·  " + c.mins + " " + I18n.t(sp, "min") : "");
-        info(box, I18n.t(sp, "Drop"), c.dropAddr.isEmpty() ? "–" : c.dropAddr, dropSub);
+        info(box, I18n.t(sp, "Drop"), c.dropAddr.isEmpty() ? "\u2013" : shorten(c.dropAddr), dropSub);
 
-        TextView money = text(I18n.t(sp, "Fare") + " ₹" + Math.round(c.fare) + "  ·  " + I18n.t(sp, "fuel") + " ₹" + Math.round(c.fuel)
-            + "  ·  " + I18n.t(sp, "You keep") + " ₹" + Math.round(c.fare - c.fuel), 14, 0xFF14171F, true);
+        TextView money = text(I18n.t(sp, "Fare") + " ₹" + Math.round(c.fare) + (c.bonus > 0 ? " (\u20B9" + Math.round(c.base) + " + \u20B9" + Math.round(c.bonus) + ")" : "") + "  ·  " + I18n.t(sp, "fuel") + " ₹" + Math.round(c.fuel)
+            + "  ·  " + I18n.t(sp, "You keep") + " ₹" + Math.round(c.fare - c.fuel), 14, pFg, true);
         LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(-1, -2);
         ml.topMargin = (int) (16 * d);
         box.addView(money, ml);
@@ -651,29 +738,29 @@ public class AcceptService extends AccessibilityService {
     TextView text(String s, int size, int color, boolean bold) {
         TextView t = new TextView(this);
         t.setText(s); t.setTextSize(size); t.setTextColor(color);
-        if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTypeface(Typeface.create("sans-serif-medium", bold ? Typeface.BOLD : Typeface.NORMAL));
         return t;
     }
 
     void info(LinearLayout box, String label, String main, String sub) {
         float d = density();
-        TextView l = text(label.toUpperCase(), 11, 0xFF667085, true);
+        TextView l = text(label.toUpperCase(), 11, pSub, true);
         l.setLetterSpacing(0.08f);
         LinearLayout.LayoutParams ll = new LinearLayout.LayoutParams(-1, -2);
         ll.topMargin = (int) (16 * d);
         box.addView(l, ll);
-        box.addView(text(main, 15, 0xFF14171F, true));
-        if (!sub.isEmpty()) box.addView(text(sub, 13, 0xFF667085, false));
+        box.addView(text(main, 15, pFg, true));
+        if (!sub.isEmpty()) box.addView(text(sub, 13, pSub, true));
     }
 
     TextView button(String s, boolean primary) {
         float d = density();
-        TextView t = text(s, 14, primary ? Color.WHITE : 0xFF1F4FD8, true);
+        TextView t = text(s, 14, primary ? Color.WHITE : pAcc, true);
         t.setGravity(Gravity.CENTER);
         GradientDrawable g = new GradientDrawable();
         g.setCornerRadius(12 * d);
-        g.setColor(primary ? 0xFF1F4FD8 : Color.WHITE);
-        if (!primary) g.setStroke((int) d, 0xFF1F4FD8);
+        g.setColor(primary ? pAcc : pBg);
+        if (!primary) g.setStroke((int) d, pAcc);
         t.setBackground(g);
         return t;
     }
@@ -825,7 +912,7 @@ public class AcceptService extends AccessibilityService {
         if (d != null) text.append(d).append('\n');
         if (tx != null || d != null || n.isClickable())
             dump.append(n.getClassName()).append(" | ").append(tx).append(" | ").append(d)
-                .append(n.isClickable() ? " | clickable" : "").append('\n');
+                .append(n.isClickable() ? " | clickable" : "").append(n.isSelected() ? " | selected" : "").append(n.isChecked() ? " | checked" : "").append('\n');
         for (int i = 0; i < n.getChildCount(); i++) collect(n.getChild(i), text, dump);
     }
 
