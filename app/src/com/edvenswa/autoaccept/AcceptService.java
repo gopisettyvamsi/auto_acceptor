@@ -25,6 +25,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Vibrator;
+import android.speech.tts.TextToSpeech;
 import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
 import android.text.style.RelativeSizeSpan;
@@ -90,7 +91,7 @@ public class AcceptService extends AccessibilityService {
     static volatile boolean connected;
 
     /** One ride request card on the driver app's screen. */
-    static class Card {
+    static class Card { // one ride request card on the driver app's screen
         AccessibilityNodeInfo accept, node, reject;
         Rect acceptBounds = new Rect(), fareBounds = new Rect(), distBounds = new Rect();
         String text = "", pickupAddr = "", dropAddr = "", type = "Bike", key = "", reason;
@@ -124,7 +125,10 @@ public class AcceptService extends AccessibilityService {
     };
     final SharedPreferences.OnSharedPreferenceChangeListener prefL = (s, k) -> {
         if ("on".equals(k) || "notif".equals(k) || "lang".equals(k)) refreshNote();
-        if ("on".equals(k)) updateBubbleRing();
+        if ("on".equals(k)) {
+            updateBubbleRing();
+            if (s.getBoolean("voice", false)) say(s, lang -> I18n.tl(lang, s.getBoolean("on", false) ? "Auto-accept is on" : "Auto-accept is paused"));
+        }
         if ("bubble".equals(k) && !s.getBoolean("bubble", true)) removeBubble();
     };
 
@@ -145,7 +149,8 @@ public class AcceptService extends AccessibilityService {
 
     @Override public boolean onUnbind(Intent i) {
         connected = false; instance = null;
-        removeChips(); removeBubble(); removeTrip();
+        removeChips(); removeBubble(); removeTrip(); removeFlash();
+        releaseSpeech();
         try { unregisterReceiver(toggleRcv); } catch (RuntimeException ex) { /* not registered */ }
         prefs().unregisterOnSharedPreferenceChangeListener(prefL);
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(1);
@@ -282,16 +287,18 @@ public class AcceptService extends AccessibilityService {
         h.removeCallbacks(tick);
         if (showChip) h.postDelayed(tick, 450);
 
+        Card bestNew = null; // one alert per new ride; when several appear together, for the best-rated
         for (Card c : cards) {
-            if (c.verdict == 2 && sp.getBoolean("alert", true) && alerted.add(c.key)) alert();
+            if (alerted.add(c.key) && c.verdict >= 0 && (bestNew == null || c.verdict > bestNew.verdict)) bestNew = c;
             if (c.reason != null && skipped.add(c.key)) MainActivity.addSkip(sp, c.reason, c.fare);
         }
+        if (bestNew != null) notifyRide(sp, bestNew);
 
         // auto-accept: of the cards that pass the filters, take the one with the nearest pickup
         Card pick = null;
         if (auto && now - lastClick >= 4000)
             for (Card c : cards)
-                if (c.accept != null && c.reason == null && (pick == null || better(c, pick))) pick = c;
+                if (c.accept != null && c.reason == null && (pick == null || better(c, pick, sp.getInt("sort", 0)))) pick = c;
         double near = MainActivity.pref(sp, "near", 0); // instant-accept radius: nearby pickups are tapped with no delay
         if (pick != null) {
             final Card chosen = pick;
@@ -316,8 +323,10 @@ public class AcceptService extends AccessibilityService {
 
     static String shorten(String s) { return s.length() > 90 ? s.substring(0, 90) + "\u2026" : s; }
 
-    /** Go To beats Stay In beats neither; ties go to the nearest pickup. */
-    static boolean better(Card a, Card b) { return a.rank != b.rank ? a.rank > b.rank : nearer(a, b); }
+    /** Go To beats Stay In beats neither; ties follow the driver's sort choice, then the nearest pickup. */
+    static boolean better(Card a, Card b, int sort) {
+        return RideOrder.better(a.rank, a.perKm, a.fare, a.fare - a.fuel, a.pickup, b.rank, b.perKm, b.fare, b.fare - b.fuel, b.pickup, sort);
+    }
 
     static boolean nearer(Card a, Card b) {
         return (a.pickup == null ? 1e9 : a.pickup) < (b.pickup == null ? 1e9 : b.pickup);
@@ -532,59 +541,6 @@ public class AcceptService extends AccessibilityService {
         return logoBmp;
     }
 
-    /** Dark pill like Rapido's own chip, stretched longer at the same height: logo, earnings per km, rating and pickup, what you keep and the fuel cost. */
-    class ChipView extends LinearLayout {
-        String key = ""; // which card this chip belongs to
-        final TextView main, verdict, keep;
-
-        ChipView() {
-            super(AcceptService.this);
-            float d = density();
-            setOrientation(HORIZONTAL);
-            setGravity(Gravity.CENTER_VERTICAL);
-            setMinimumWidth((int) (214 * d));
-            setPadding((int) (6 * d), (int) (3 * d), (int) (16 * d), (int) (3 * d));
-            ImageView logoView = new ImageView(AcceptService.this);
-            if (logo() != null) logoView.setImageBitmap(logoBmp);
-            addView(logoView, new LinearLayout.LayoutParams((int) (22 * d), (int) (22 * d)));
-            main = new TextView(AcceptService.this);
-            main.setTextSize(16); main.setTextColor(Color.WHITE); main.setTypeface(Typeface.DEFAULT_BOLD);
-            main.setPadding((int) (8 * d), 0, (int) (14 * d), 0);
-            addView(main);
-            LinearLayout col = new LinearLayout(AcceptService.this);
-            col.setOrientation(VERTICAL);
-            verdict = new TextView(AcceptService.this);
-            verdict.setTextSize(9.5f); verdict.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-            keep = new TextView(AcceptService.this);
-            keep.setTextSize(11); keep.setTypeface(Typeface.DEFAULT_BOLD);
-            col.addView(verdict); col.addView(keep);
-            addView(col);
-        }
-
-        void bind(Card c, SharedPreferences sp) {
-            float d = density();
-            int[] ring = {0xFFEF5350, 0xFFFFC107, 0xFF2EAD5B};      // low, average, worth it
-            int[] word = {0xFFFF8A80, 0xFFFFD54F, 0xFF5BD68A};
-            GradientDrawable bg = new GradientDrawable();
-            bg.setColor(0xF2121212); bg.setCornerRadius(20 * d);
-            bg.setStroke((int) (1.5f * d), c.verdict < 0 ? 0xFF98A2B3 : ring[c.verdict]);
-            setBackground(bg);
-            if (c.verdict < 0) {
-                main.setText("₹" + Math.round(c.fare));
-                verdict.setText(I18n.t(sp, "No distance")); verdict.setTextColor(0xFFE2E8F0);
-                keep.setText("");
-                return;
-            }
-            main.setText("₹" + String.format(Locale.US, "%.2f", c.perKm) + "/km");
-            verdict.setText(MainActivity.fmtDist(sp, c.dist) + " " + I18n.t(sp, "total") + "  \u00B7  " + I18n.t(sp, CHIP_NAME[c.verdict])
-                + (c.tag.isEmpty() ? "" : "  \u00B7  " + c.tag));
-            verdict.setTextColor(word[c.verdict]);
-            double kept = c.fare - c.fuel;
-            keep.setText(I18n.t(sp, "Keep") + " ₹" + Math.round(kept) + "  ·  " + I18n.t(sp, "fuel") + " ₹" + Math.round(c.fuel));
-            keep.setTextColor(kept >= 0 ? 0xFF5BD68A : 0xFFFF8A80);
-        }
-    }
-
     void render(SharedPreferences sp, List<Card> cs, List<int[]> pos) {
         float d = density();
         DisplayMetrics dm = getResources().getDisplayMetrics();
@@ -604,6 +560,7 @@ public class AcceptService extends AccessibilityService {
     void relayoutChips(DisplayMetrics dm) {
         float d = density();
         int margin = (int) (8 * d);
+        int pos = prefs().getInt("chip_pos", 0); // 0 automatic (beside the fare when it fits), 1 always beside the distance
         for (int i = 0; i < chips.size(); i++) {
             ChipView t = chips.get(i);
             WindowManager.LayoutParams lp = (WindowManager.LayoutParams) t.getLayoutParams();
@@ -611,42 +568,62 @@ public class AcceptService extends AccessibilityService {
             int w = Math.max(t.getWidth(), t.getMeasuredWidth()), hh = Math.max(t.getHeight(), t.getMeasuredHeight());
             int[] b = chipBase.get(i);
             int bx = b[0], by = b[1];
-            if (bx + w > dm.widthPixels - margin) { // no room beside the fare: use the pickup-distance row, at the right edge (empty there)
+            boolean noRoom = bx + w > dm.widthPixels - margin;                         // no space to the right of the fare
+            boolean onRow = b[3] >= 0 && (pos >= 1 || noRoom);                          // the pickup-distance row is empty on its right; never sit on the fare text
+            if (onRow) {
                 bx = dm.widthPixels - margin - w;
-                by = b[3] >= 0 ? b[3] + (b[4] - hh) / 2 : by + b[2] + (int) (4 * d);
+                by = hh <= b[4] ? b[3] + (b[4] - hh) / 2 : b[3] + b[4] - hh;           // taller than the row: sit on its bottom edge and grow upward, away from the address
+            } else if (noRoom) {
+                bx = dm.widthPixels - margin - w;
+                by = by + b[2] + (int) (4 * d);                                       // pickup row unknown: tuck just under the fare
             }
             int[] off = drag.get(t.key);
             if (off != null) { bx += off[0]; by += off[1]; }
-            lp.x = Math.max(0, Math.min(dm.widthPixels - margin - w, bx));        // never off the screen
+            lp.x = Math.max(0, Math.min(dm.widthPixels - margin - w, bx));             // never off the screen
             lp.y = Math.max(0, Math.min(dm.heightPixels - margin - hh, by));
             try { wm().updateViewLayout(t, lp); } catch (RuntimeException ex) { /* removed meanwhile */ }
         }
     }
 
+    /** Tap on a chip: move every chip to the next position. A switch for drivers who cannot drag. */
+    void cyclePosition() {
+        SharedPreferences sp = prefs();
+        int p = (Math.min(1, sp.getInt("chip_pos", 0)) + 1) % 2;
+        sp.edit().putInt("chip_pos", p).apply();
+        drag.clear();
+        relayoutChips(getResources().getDisplayMetrics());
+        Toast.makeText(this, I18n.t(sp, new String[]{"Automatic", "Beside the distance"}[p]), Toast.LENGTH_SHORT).show();
+    }
+
     ChipView newChip() {
-        ChipView t = new ChipView();
+        ChipView t = new ChipView(this, logo());
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.START;
-        // drag a chip to move that chip only; the move lasts while this offer is on screen
+        // drag a chip to move that chip only (lasts while this offer is on screen); a plain tap moves all chips to the next position
         t.setOnTouchListener(new View.OnTouchListener() {
-            float sx, sy; int ox, oy;
+            float sx, sy; int ox, oy; boolean moved;
             @Override public boolean onTouch(View v, MotionEvent ev) {
                 String k = ((ChipView) v).key;
+                float slop = 8 * density();
                 switch (ev.getAction()) {
                     case MotionEvent.ACTION_DOWN: {
                         int[] cur = drag.get(k);
-                        sx = ev.getRawX(); sy = ev.getRawY(); ox = cur == null ? 0 : cur[0]; oy = cur == null ? 0 : cur[1];
+                        sx = ev.getRawX(); sy = ev.getRawY(); ox = cur == null ? 0 : cur[0]; oy = cur == null ? 0 : cur[1]; moved = false;
                         return true;
                     }
                     case MotionEvent.ACTION_MOVE:
-                        drag.put(k, new int[]{ox + (int) (ev.getRawX() - sx), oy + (int) (ev.getRawY() - sy)});
-                        relayoutChips(getResources().getDisplayMetrics());
+                        if (Math.abs(ev.getRawX() - sx) > slop || Math.abs(ev.getRawY() - sy) > slop) moved = true;
+                        if (moved) {
+                            drag.put(k, new int[]{ox + (int) (ev.getRawX() - sx), oy + (int) (ev.getRawY() - sy)});
+                            relayoutChips(getResources().getDisplayMetrics());
+                        }
                         return true;
                     case MotionEvent.ACTION_UP:
+                        if (!moved) cyclePosition();
                         return true;
                 }
                 return false;
@@ -735,8 +712,9 @@ public class AcceptService extends AccessibilityService {
         lp.gravity = Gravity.CENTER;
         tripView = box;
         wm().addView(box, lp);
+        if (sp.getBoolean("voice", false)) sayTrip(sp, c);
         h.removeCallbacks(hideTrip);
-        h.postDelayed(hideTrip, 90000); // safety: never block the screen for good
+        h.postDelayed(hideTrip, sp.getBoolean("voice", false) ? 10000 : 90000); // voice-first closes the card itself; otherwise never block the screen for good
     }
 
     void removeTrip() {
@@ -844,6 +822,111 @@ public class AcceptService extends AccessibilityService {
         if (bubble != null) {
             try { wm().removeView(bubble); } catch (RuntimeException ex) { /* already gone */ }
             bubble = null;
+        }
+    }
+
+    // =====================================================================
+    // alerts: vibration by rating, spoken, screen flash
+    // =====================================================================
+    TextToSpeech tts;
+    boolean ttsReady;
+    View flashView;
+
+    /** One alert per new ride (the best of any that appear together), in the ways the driver chose. */
+    void notifyRide(SharedPreferences sp, Card c) {
+        Vibrator vib = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+        if (c.verdict == 2 && sp.getBoolean("alert", true)) alert();
+        else if (sp.getBoolean("vib_verdict", false) && c.verdict < 2 && vib != null)
+            vib.vibrate(c.verdict == 1 ? new long[]{0, 250} : new long[]{0, 600}, -1); // Average: one medium buzz; Low: one long buzz
+        int speak = sp.getBoolean("voice", false) ? 2 : sp.getInt("speak", 0); // voice-first speaks every ride
+        if (speak == 2 || (speak == 1 && c.verdict == 2)) speak(sp, c);
+        if (sp.getBoolean("flash", false)) flash(c.verdict);
+    }
+
+    /** Plays the alerts for a made-up ride, so drivers can check what they chose. */
+    void testAlerts(int verdict) {
+        Card c = new Card();
+        c.fare = new double[]{15, 24, 33}[verdict]; c.dist = 3.7; c.fuel = 9; c.perKm = c.fare / 3.7; c.verdict = verdict;
+        notifyRide(prefs(), c);
+    }
+
+    void speak(SharedPreferences sp, Card c) {
+        say(sp, lang -> I18n.tl(lang, CHIP_NAME[c.verdict]) + ". " + MainActivity.fmtDist(sp, c.dist) + " " + I18n.tl(lang, "total") + ". "
+            + I18n.tl(lang, "Keep") + " " + Math.round(c.fare - c.fuel) + " " + I18n.tl(lang, "rupees") + ".");
+    }
+
+    /** Speaks a sentence in the app language, or in English when the phone has no voice for it. The engine is started on first use and released when idle. */
+    void say(SharedPreferences sp, java.util.function.Function<String, String> build) {
+        if (tts == null) {
+            pendingSp = sp; pendingMsg = build;
+            tts = new TextToSpeech(this, st -> h.post(() -> {
+                ttsReady = st == TextToSpeech.SUCCESS;
+                java.util.function.Function<String, String> f = pendingMsg;
+                pendingMsg = null;
+                if (ttsReady && f != null) sayNow(pendingSp, f);
+            }));
+            return;
+        }
+        if (!ttsReady) { pendingSp = sp; pendingMsg = build; return; } // still starting: say it as soon as it is ready
+        sayNow(sp, build);
+    }
+
+    void sayNow(SharedPreferences sp, java.util.function.Function<String, String> build) {
+        String lang = sp.getString("lang", "en");
+        int r = tts.setLanguage(new Locale(lang, "IN"));
+        if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
+            lang = "en";
+            tts.setLanguage(new Locale("en", "IN"));
+        }
+        tts.speak(build.apply(lang), TextToSpeech.QUEUE_FLUSH, null, "say");
+        h.removeCallbacks(ttsIdle);
+        h.postDelayed(ttsIdle, 30000);
+    }
+
+    final Runnable ttsIdle = this::releaseSpeech;
+    SharedPreferences pendingSp;
+    java.util.function.Function<String, String> pendingMsg;
+
+    void releaseSpeech() {
+        h.removeCallbacks(ttsIdle);
+        pendingMsg = null;
+        if (tts != null) { tts.shutdown(); tts = null; ttsReady = false; }
+    }
+
+    /** Voice-first mode: reads out what the trip card shows, so the driver never has to look. */
+    void sayTrip(SharedPreferences sp, Card c) {
+        say(sp, lang -> {
+            StringBuilder sb = new StringBuilder(I18n.tl(lang, "Ride accepted")).append(". ");
+            if (c.pickup != null) sb.append(I18n.tl(lang, "Pickup")).append(' ').append(MainActivity.fmtDist(sp, c.pickup)).append(' ').append(I18n.tl(lang, "away")).append(". ");
+            if (c.drop != null) {
+                sb.append(I18n.tl(lang, "Drop")).append(' ').append(MainActivity.fmtDist(sp, c.drop));
+                if (c.mins >= 0) sb.append(", ").append(c.mins).append(' ').append(I18n.tl(lang, "min"));
+                sb.append(". ");
+            }
+            return sb.append(I18n.tl(lang, "You keep")).append(' ').append(Math.round(c.fare - c.fuel)).append(' ').append(I18n.tl(lang, "rupees")).append('.').toString();
+        });
+    }
+
+    /** A brief tint over the whole screen, green / amber / red by rating, for drivers who cannot hear the beep. */
+    void flash(int verdict) {
+        removeFlash();
+        int[] cols = {0x66FF5252, 0x66FFC107, 0x6600C853};
+        View v = new View(this);
+        v.setBackgroundColor(cols[Math.max(0, Math.min(2, verdict))]);
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT);
+        flashView = v;
+        try { wm().addView(v, lp); } catch (RuntimeException ex) { flashView = null; return; }
+        h.postDelayed(this::removeFlash, 350);
+    }
+
+    void removeFlash() {
+        if (flashView != null) {
+            try { wm().removeView(flashView); } catch (RuntimeException ex) { /* already gone */ }
+            flashView = null;
         }
     }
 

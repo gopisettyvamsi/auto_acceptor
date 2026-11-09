@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
+import android.graphics.Bitmap;
 
 public class MainActivity extends Activity {
     static final String PREFS = "p";
@@ -45,8 +46,9 @@ public class MainActivity extends Activity {
     static {
         I18n.a("Show trip details after accepting", "स्वीकार करने के बाद यात्रा विवरण दिखाएं", "అంగీకరించిన తరువాత ట్రిప్ వివరాలు చూపించు");
     }
-    static final String[] LANGS ={"en", "hi", "te"};
-    static final String[] LANG_NAMES = {"English", "हिन्दी", "తెలుగు"};
+    static final String[] LANGS = {"en", "hi", "te", "ta", "kn", "mr", "bn"};
+    static final String[] LANG_NAMES = {"English", "\u0939\u093F\u0928\u094D\u0926\u0940", "\u0C24\u0C46\u0C32\u0C41\u0C17\u0C41",
+        "\u0BA4\u0BAE\u0BBF\u0BB4\u0BCD", "\u0C95\u0CA8\u0CCD\u0CA8\u0CA1", "\u092E\u0930\u093E\u0920\u0940", "\u09AC\u09BE\u0982\u09B2\u09BE"};
 
     // palette: one accent, neutral greys. Dark by default; applyTheme() swaps the values (light = black, bold text).
     static int ACCENT, ACCENT_SOFT, BG, SURFACE, LINE, TEXT, SUBTLE, OK, WARN, HERO,
@@ -66,6 +68,9 @@ public class MainActivity extends Activity {
             TEXT = 0xFF0B0F19; SUBTLE = 0xFF1F2937; OK = 0xFF1E8E4E; WARN = 0xFFB3261E; HERO = 0xFF101828;
             INPUT_LINE = 0xFFC4C9D2; OK_SOFT = 0xFFE3F4EA; WARN_SOFT = 0xFFFCE8E6; BAR = 0xFFC7D2F5;
             THUMB_OFF = 0xFFF2F4F7; TRACK_OFF = 0xFFD0D5DD;
+        }
+        if (sp.getBoolean("hc", false)) { // high contrast: secondary text as strong as the main text, stronger outlines
+            SUBTLE = TEXT; LINE = dark ? 0xFF8A94A8 : 0xFF4B5563; INPUT_LINE = dark ? 0xFFAEB7C8 : 0xFF1F2937;
         }
     }
 
@@ -291,7 +296,12 @@ public class MainActivity extends Activity {
     // =====================================================================
     String L(String s) { return I18n.t(sp, s); }
     String F(String template, Object... a) { return String.format(Locale.US, L(template), a); }
-    float scale() { return sp.getBoolean("large", false) ? 1.2f : 1f; }
+    static final float[] TEXT_SCALES = {1f, 1.15f, 1.3f, 1.5f};
+    float scale() {
+        int i = sp.contains("text_scale") ? sp.getInt("text_scale", 0) : (sp.getBoolean("large", false) ? 1 : 0);
+        return TEXT_SCALES[Math.max(0, Math.min(3, i))];
+    }
+    float taps() { return sp.getBoolean("big_taps", false) ? 1.25f : 1f; }
 
     int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
@@ -337,6 +347,7 @@ public class MainActivity extends Activity {
         f.setBackground(shape(bg, size / 2, stroke));
         ImageView i = new ImageView(this);
         i.setImageResource(res); i.setColorFilter(fg);
+        i.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         f.addView(i, new FrameLayout.LayoutParams(dp(size / 2), dp(size / 2), Gravity.CENTER));
         f.setLayoutParams(new LinearLayout.LayoutParams(dp(size), dp(size)));
         return f;
@@ -412,14 +423,16 @@ public class MainActivity extends Activity {
     }
 
     EditText field(LinearLayout p, String name, String help, String val, int type, int top) {
-        label(p, name, 14, TEXT, "sans-serif-medium", top);
+        TextView fieldLabel = label(p, name, 14, TEXT, "sans-serif-medium", top);
         EditText e = new EditText(this);
+        e.setId(View.generateViewId());
+        fieldLabel.setLabelFor(e.getId());
         e.setInputType(type); e.setText(val); e.setSingleLine(true);
         e.setTextColor(TEXT); e.setTextSize(16 * scale());
         e.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
         e.setBackground(shape(SURFACE, 10, INPUT_LINE));
         e.setPadding(dp(12), 0, dp(12), 0);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(Math.round(48 * scale())));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(Math.round(48 * scale() * taps())));
         lp.topMargin = dp(8);
         p.addView(e, lp);
         label(p, help, 13, SUBTLE, "sans-serif", 4);
@@ -433,7 +446,7 @@ public class MainActivity extends Activity {
         b.setTextColor(primary ? Color.WHITE : ACCENT);
         b.setBackground(primary ? shape(ACCENT, 12, 0) : shape(SURFACE, 12, ACCENT));
         b.setStateListAnimator(null);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(Math.round(50 * scale())));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(Math.round(50 * scale() * taps())));
         lp.topMargin = dp(top);
         p.addView(b, lp);
         return b;
@@ -449,6 +462,7 @@ public class MainActivity extends Activity {
                 boolean s = i == cur[0];
                 o[i].setBackground(shape(s ? ACCENT : SURFACE, 10, s ? 0 : INPUT_LINE));
                 o[i].setTextColor(s ? Color.WHITE : TEXT);
+                o[i].setContentDescription(L(names[i]) + (s ? ", " + L("selected") : ""));
             }
         };
         for (int i = 0; i < names.length; i++) {
@@ -1028,22 +1042,117 @@ public class MainActivity extends Activity {
         return parts.isEmpty() ? L("No limits set") : android.text.TextUtils.join("  ·  ", parts);
     }
 
+    String prioritySummary() {
+        List<String> p = new ArrayList<>();
+        if (sp.getBoolean("goto_on", false)) p.add("Go To");
+        if (sp.getBoolean("stay_on", false)) p.add("Stay In");
+        String[] sorts = {"Nearest", "Best ₹/km", "Top fare", "Most kept"};
+        p.add(L(sorts[Math.max(0, Math.min(3, sp.getInt("sort", 0)))]));
+        return android.text.TextUtils.join("  →  ", p);
+    }
+
+    String alertsSummary() {
+        List<String> a = new ArrayList<>();
+        if (sp.getBoolean("voice", false) || sp.getInt("speak", 0) > 0) a.add(L("Spoken alerts"));
+        if (sp.getBoolean("flash", false)) a.add(L("Flash"));
+        if (sp.getBoolean("alert", true) || sp.getBoolean("vib_verdict", false)) a.add(L("Vibration"));
+        return a.isEmpty() ? L("Off") : android.text.TextUtils.join("  ·  ", a);
+    }
+
+    /** One line of the "Your rules" card: icon, name, current value; tap to open that settings page. */
+    void ruleRow(LinearLayout card, int icon, String name, String value, int page, boolean first) {
+        if (!first) divider(card, 12);
+        LinearLayout r = row();
+        r.setPadding(0, dp(first ? 0 : 12), 0, 0);
+        r.addView(badge(icon, ACCENT_SOFT, ACCENT, 36, 0));
+        LinearLayout t = col();
+        t.setPadding(dp(12), 0, dp(8), 0);
+        label(t, name, 14, TEXT, "sans-serif-medium", 0);
+        label(t, value, 12, SUBTLE, "sans-serif", 0);
+        r.addView(t, weight());
+        ImageView chev = new ImageView(this);
+        chev.setImageResource(R.drawable.ic_chevron_right);
+        chev.setColorFilter(SUBTLE);
+        chev.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        r.addView(chev, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        r.setOnClickListener(v -> { settingsPage = page; show(3); });
+        card.addView(r, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    /** Only shown when something stops Vamsify from working; each line fixes itself when tapped. */
+    void issuesBanner(LinearLayout p, boolean svc, boolean batt, boolean app) {
+        LinearLayout c = card(p, 16);
+        c.setBackground(shape(WARN_SOFT, 16, WARN));
+        LinearLayout h1 = row();
+        h1.addView(badge(R.drawable.ic_error, SURFACE, WARN, 36, 0));
+        TextView title = tv("Needs attention", 16, TEXT, "sans-serif-medium");
+        title.setPadding(dp(12), 0, 0, 0);
+        h1.addView(title, weight());
+        c.addView(h1);
+        String[][] items = {
+            {"Accessibility service", "Off. Tap to turn it on."},
+            {"Battery use", "Restricted. Tap to set Unrestricted so Android doesn't stop the service."},
+            {"Driver app", "No selected driver app found on this phone."}};
+        boolean[] ok = {svc, batt, app};
+        for (int i = 0; i < 3; i++) {
+            if (ok[i]) continue;
+            final int idx = i;
+            LinearLayout r = col();
+            r.setPadding(dp(48), dp(10), 0, 0);
+            label(r, items[i][0], 14, TEXT, "sans-serif-medium", 0);
+            label(r, items[i][1], 12, SUBTLE, "sans-serif", 0);
+            if (i < 2) r.setOnClickListener(v -> startActivity(new Intent(idx == 0
+                ? Settings.ACTION_ACCESSIBILITY_SETTINGS : Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)));
+            c.addView(r, new LinearLayout.LayoutParams(-1, -2));
+        }
+    }
+
+    /** A small tappable tile: icon over a short label. */
+    void tile(LinearLayout row, int icon, String name, Runnable onTap, boolean first) {
+        LinearLayout t = col();
+        t.setGravity(Gravity.CENTER_HORIZONTAL);
+        t.setPadding(dp(8), dp(14), dp(8), dp(12));
+        t.setBackground(shape(SURFACE, 14, LINE));
+        t.addView(badge(icon, ACCENT_SOFT, ACCENT, 40, 0));
+        label(t, name, 12, TEXT, "sans-serif-medium", 8).setGravity(Gravity.CENTER);
+        t.setOnClickListener(v -> onTap.run());
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
+        if (!first) lp.leftMargin = dp(10);
+        row.addView(t, lp);
+    }
+
     void home() {
         LinearLayout root = newPage();
-        boolean running = AcceptService.connected;
+        boolean svc = AcceptService.connected;
+        boolean batt = ((PowerManager) getSystemService(POWER_SERVICE)).isIgnoringBatteryOptimizations(getPackageName());
+        boolean app = driverAppInstalled();
+        boolean ready = svc && batt && app;
+        boolean auto = sp.getBoolean("on", false);
 
+        // ---- app bar: logo, name, live status, help
         LinearLayout head = row();
         ImageView logo = new ImageView(this);
+        logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         try (java.io.InputStream in = getAssets().open("logo.png")) {
             logo.setImageBitmap(android.graphics.BitmapFactory.decodeStream(in));
         } catch (java.io.IOException ex) { /* header just shows the name */ }
-        head.addView(logo, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        head.addView(logo, new LinearLayout.LayoutParams(dp(42), dp(42)));
         LinearLayout names = col();
         names.setPadding(dp(12), 0, 0, 0);
-        label(names, "Welcome back", 13, SUBTLE, "sans-serif", 0);
         TextView name = label(names, "Vamsify", 20, TEXT, "sans-serif-medium", 0);
+        LinearLayout stat = row();
+        View sdot = new View(this);
+        sdot.setBackground(shape(ready ? OK : WARN, 4, 0));
+        stat.addView(sdot, new LinearLayout.LayoutParams(dp(8), dp(8)));
+        TextView stxt = tv(ready ? "Ready" : "Needs attention", 12, ready ? OK : WARN, "sans-serif-medium");
+        stxt.setPadding(dp(6), 0, 0, 0);
+        stat.addView(stxt);
+        names.addView(stat);
         head.addView(names, weight());
-        head.addView(badge(R.drawable.ic_notifications, SURFACE, TEXT, 44, LINE));
+        FrameLayout helpBtn = badge(R.drawable.ic_help, SURFACE, TEXT, 44, LINE);
+        helpBtn.setContentDescription(L("Help & guide"));
+        helpBtn.setOnClickListener(v -> { settingsPage = 11; show(3); });
+        head.addView(helpBtn);
         root.addView(head);
         // support only: long-press the name for technical details
         name.setOnLongClickListener(v -> {
@@ -1053,7 +1162,7 @@ public class MainActivity extends Activity {
             return true;
         });
 
-        // today's numbers
+        // ---- today's numbers
         double fare = 0, km = 0, keepSum = 0; int cnt = 0, worth = 0;
         for (Ride x : parseRides(sp)) {
             if (x.t < midnight()) continue;
@@ -1062,31 +1171,42 @@ public class MainActivity extends Activity {
             if (!Double.isNaN(x.perKm()) && verdict(x.perKm(), targetFor(sp, x.type)) == 2) worth++;
         }
 
+        // ---- earnings card, with the daily goal built in
         LinearLayout hero = col();
         hero.setPadding(dp(20), dp(18), dp(20), dp(18));
         hero.setBackground(shape(HERO, 20, 0));
         LinearLayout top = row();
         top.addView(tv("Today's earnings", 14, ON_HERO, "sans-serif"), weight());
-        LinearLayout pill = row();
-        pill.setPadding(dp(10), dp(5), dp(12), dp(5));
-        pill.setBackground(shape(0x26FFFFFF, 14, 0));
-        View dot = new View(this);
-        dot.setBackground(shape(running ? 0xFF4ADE80 : 0xFFF87171, 4, 0));
-        pill.addView(dot, new LinearLayout.LayoutParams(dp(8), dp(8)));
-        TextView ps = tv(running ? "Service on" : "Enable service", 12, Color.WHITE, "sans-serif-medium");
-        ps.setPadding(dp(6), 0, 0, 0);
-        pill.addView(ps);
-        pill.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
-        top.addView(pill);
+        TextView date = tv(new SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(new Date()), 12, ON_HERO, "sans-serif");
+        top.addView(date);
         hero.addView(top);
-        label(hero, "₹" + Math.round(fare), 36, Color.WHITE, "sans-serif-medium", 6);
+        label(hero, "₹" + Math.round(fare), 38, Color.WHITE, "sans-serif-medium", 6);
         label(hero, cnt + " " + L(cnt == 1 ? "ride" : "rides") + " " + L("accepted today"), 13, ON_HERO, "sans-serif", 0);
+        double goal = pref(sp, "goal", 0);
+        if (goal > 0) {
+            LinearLayout gr = row();
+            gr.addView(tv("Daily goal", 12, ON_HERO, "sans-serif-medium"), weight());
+            gr.addView(tv(fare >= goal ? L("Goal reached") : "₹" + Math.round(goal - fare) + " " + L("to go"), 12,
+                fare >= goal ? 0xFF4ADE80 : Color.WHITE, "sans-serif-medium"));
+            LinearLayout.LayoutParams grl = new LinearLayout.LayoutParams(-1, -2);
+            grl.topMargin = dp(14);
+            hero.addView(gr, grl);
+            LinearLayout track = new LinearLayout(this);
+            track.setWeightSum(1f);
+            track.setBackground(shape(0x33FFFFFF, 4, 0));
+            View bar = new View(this);
+            bar.setBackground(shape(fare >= goal ? 0xFF4ADE80 : ACCENT, 4, 0));
+            track.addView(bar, new LinearLayout.LayoutParams(0, -1, (float) Math.min(1, fare / goal)));
+            LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-1, dp(6));
+            tl.topMargin = dp(6);
+            hero.addView(track, tl);
+        }
         divider(hero, 16);
         ((LinearLayout.LayoutParams) hero.getChildAt(hero.getChildCount() - 1).getLayoutParams()).bottomMargin = dp(14);
         hero.getChildAt(hero.getChildCount() - 1).setBackgroundColor(0x26FFFFFF);
         LinearLayout stats = row();
         String[][] st = {
-            {km > 0 ? fmtDist(sp, km) : "\u2013", "Total km"},
+            {km > 0 ? fmtDist(sp, km) : "–", "Total km"},
             {"₹" + Math.round(keepSum), "You keep"},
             {cnt > 0 ? worth + "/" + cnt : "–", "Worth it"}};
         for (String[] s : st) {
@@ -1097,89 +1217,68 @@ public class MainActivity extends Activity {
         }
         hero.addView(stats);
         LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-1, -2);
-        hlp.topMargin = dp(20);
+        hlp.topMargin = dp(18);
         root.addView(hero, hlp);
 
-        // daily goal progress
-        double goal = pref(sp, "goal", 0);
-        if (goal > 0) {
-            LinearLayout gc = card(root, 16);
-            LinearLayout gr = row();
-            gr.addView(tv("Daily goal", 14, TEXT, "sans-serif-medium"), weight());
-            gr.addView(tv(fare >= goal ? L("Goal reached") : "₹" + Math.round(goal - fare) + " " + L("to go"), 13,
-                fare >= goal ? OK : SUBTLE, "sans-serif-medium"));
-            gc.addView(gr);
-            LinearLayout track = new LinearLayout(this);
-            track.setWeightSum(1f);
-            track.setBackground(shape(LINE, 4, 0));
-            View bar = new View(this);
-            bar.setBackground(shape(fare >= goal ? OK : ACCENT, 4, 0));
-            track.addView(bar, new LinearLayout.LayoutParams(0, -1, (float) Math.min(1, fare / goal)));
-            LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-1, dp(8));
-            tl.topMargin = dp(10);
-            gc.addView(track, tl);
-            label(gc, "₹" + Math.round(fare) + " " + L("of") + " ₹" + Math.round(goal), 12, SUBTLE, "sans-serif", 6);
-        }
+        LinearLayout controls = col(), info = col();
 
-        LinearLayout controls = col(), recent = col();
-
-        // quick actions
-        LinearLayout qa = row();
-        Object[][] q = {{"Rides", R.drawable.ic_history, 1}, {"Filters", R.drawable.ic_tune, 3},
-                        {"Earnings", R.drawable.ic_wallet, 2}, {"Apps", R.drawable.ic_car, 3}};
-        for (Object[] a : q) {
-            LinearLayout c = col();
-            c.setGravity(Gravity.CENTER_HORIZONTAL);
-            c.addView(badge((Integer) a[1], SURFACE, ACCENT, 56, LINE));
-            label(c, (String) a[0], 12, TEXT, "sans-serif-medium", 8).setGravity(Gravity.CENTER);
-            c.setOnClickListener(v -> { settingsPage = "Filters".equals(a[0]) ? 0 : "Apps".equals(a[0]) ? 8 : -1; show((Integer) a[2]); });
-            qa.addView(c, weight());
-        }
-        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(-1, -2);
-        qlp.topMargin = dp(20);
-        controls.addView(qa, qlp);
-
-        healthCard(controls);
-
-        // switches
-        LinearLayout sw = card(controls, 16);
-        LinearLayout sr = row();
-        sr.addView(badge(R.drawable.ic_bolt, ACCENT_SOFT, ACCENT, 44, 0));
-        LinearLayout sc = col();
-        sc.setPadding(dp(12), 0, dp(8), 0);
-        label(sc, "Auto-accept", 16, TEXT, "sans-serif-medium", 0);
-        label(sc, "Accept rides that match your filters", 13, SUBTLE, "sans-serif", 2);
-        sr.addView(sc, weight());
-        Switch on = toggle(sp.getBoolean("on", false));
-        on.setOnCheckedChangeListener((v, c) -> sp.edit().putBoolean("on", c).apply());
-        sr.addView(on);
-        sw.addView(sr);
-        divider(sw, 14);
-        LinearLayout cr = row();
-        ((LinearLayout.LayoutParams) sw.getChildAt(sw.getChildCount() - 1).getLayoutParams()).bottomMargin = dp(14);
-        cr.addView(badge(R.drawable.ic_trending_up, ACCENT_SOFT, ACCENT, 44, 0));
-        LinearLayout cc = col();
-        cc.setPadding(dp(12), 0, dp(8), 0);
-        label(cc, "Earnings chip", 16, TEXT, "sans-serif-medium", 0);
-        label(cc, "Show fare, fuel cost and a worth-it rating on every ride request", 13, SUBTLE, "sans-serif", 2);
-        cr.addView(cc, weight());
+        // ---- the main control: auto-accept, and the earnings chip under it
+        LinearLayout cc = card(controls, 16);
+        LinearLayout r1 = row();
+        r1.addView(badge(R.drawable.ic_bolt, auto ? OK_SOFT : ACCENT_SOFT, auto ? OK : ACCENT, 48, 0));
+        LinearLayout t1 = col();
+        t1.setPadding(dp(14), 0, dp(8), 0);
+        label(t1, auto ? "Auto-accept is on" : "Auto-accept is paused", 17, TEXT, "sans-serif-medium", 0);
+        label(t1, "Accept rides that match your filters", 13, SUBTLE, "sans-serif", 2);
+        r1.addView(t1, weight());
+        Switch on = toggle(auto);
+        on.setContentDescription(L("Auto-accept"));
+        on.setOnCheckedChangeListener((v, c) -> { sp.edit().putBoolean("on", c).apply(); v.post(this::home); });
+        r1.addView(on);
+        cc.addView(r1);
+        divider(cc, 14);
+        ((LinearLayout.LayoutParams) cc.getChildAt(cc.getChildCount() - 1).getLayoutParams()).bottomMargin = dp(14);
+        LinearLayout r2 = row();
+        r2.addView(badge(R.drawable.ic_trending_up, ACCENT_SOFT, ACCENT, 40, 0));
+        LinearLayout t2 = col();
+        t2.setPadding(dp(14), 0, dp(8), 0);
+        label(t2, "Earnings chip", 15, TEXT, "sans-serif-medium", 0);
+        label(t2, "Show fare, fuel cost and a worth-it rating on every ride request", 12, SUBTLE, "sans-serif", 2);
+        r2.addView(t2, weight());
         Switch chipSw = toggle(sp.getBoolean("chip", true));
+        chipSw.setContentDescription(L("Earnings chip"));
         chipSw.setOnCheckedChangeListener((v, c) -> sp.edit().putBoolean("chip", c).apply());
-        cr.addView(chipSw);
-        sw.addView(cr);
+        r2.addView(chipSw);
+        cc.addView(r2);
 
+        if (!ready) issuesBanner(controls, svc, batt, app);
 
-        Button sample = button(controls, "Try a sample ride", false, 16);
-        sample.setOnClickListener(v -> {
+        // ---- shortcuts
+        LinearLayout tiles = row();
+        tile(tiles, R.drawable.ic_car, "Sample ride", () -> {
             if (AcceptService.instance == null) Toast.makeText(this, L("Turn on the service first"), Toast.LENGTH_LONG).show();
             else startActivity(new Intent(this, SampleActivity.class)); // a test screen with several cards
-        });
+        }, true);
+        tile(tiles, R.drawable.ic_tune, "Filters", () -> { settingsPage = 0; show(3); }, false);
+        tile(tiles, R.drawable.ic_palette, "Chip style", () -> { settingsPage = 9; show(3); }, false);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
+        tlp.topMargin = dp(16);
+        controls.addView(tiles, tlp);
 
-        section(recent, "Recent rides", "View all", () -> show(1));
-        rideList(card(recent, 0), 3);
+        // ---- the rules in force, so nothing is hidden in a menu
+        section(info, "Your rules", "Edit", () -> { settingsPage = -1; show(3); });
+        LinearLayout rules = card(info, 0);
+        ruleRow(rules, R.drawable.ic_tune, L("Filters"), profileInfo(), 0, true);
+        ruleRow(rules, R.drawable.ic_place, L("Priority"), prioritySummary(), 1, false);
+        ruleRow(rules, R.drawable.ic_palette, L("Chip style"), sectionSummaryExtra(9), 9, false);
+        ruleRow(rules, R.drawable.ic_notifications, L("Alerts"), alertsSummary(), 10, false);
+        ruleRow(rules, R.drawable.ic_settings, L("Language"), LANG_NAMES[Math.max(0, Arrays.asList(LANGS).indexOf(sp.getString("lang", "en")))], 7, false);
 
-        if (sp.getBoolean("onehand", false)) { root.addView(recent); root.addView(controls); } // controls within thumb reach
-        else { root.addView(controls); root.addView(recent); }
+        section(info, "Recent rides", "View all", () -> show(1));
+        rideList(card(info, 0), 3);
+
+        if (sp.getBoolean("onehand", false)) { root.addView(info); root.addView(controls); } // controls within thumb reach
+        else { root.addView(controls); root.addView(info); }
     }
 
     // ---------- history ----------
@@ -1220,9 +1319,10 @@ public class MainActivity extends Activity {
 
     // ---------- settings: a short menu, each group on its own one-screen page ----------
     static final String[] SECTIONS = {"Ride filters", "Go To & Stay In", "Accept speed", "Earnings targets", "Vehicle & fuel", "Mileage",
-        "Goals & alerts", "Display & language", "Driver apps"};
+        "Goals & alerts", "Display & language", "Driver apps", "Chip style", "Accessibility", "Help & guide"};
     static final int[] SECTION_ICONS = {R.drawable.ic_tune, R.drawable.ic_place, R.drawable.ic_bolt, R.drawable.ic_trending_up, R.drawable.ic_car,
-        R.drawable.ic_wallet, R.drawable.ic_notifications, R.drawable.ic_settings, R.drawable.ic_check_circle};
+        R.drawable.ic_wallet, R.drawable.ic_notifications, R.drawable.ic_settings, R.drawable.ic_check_circle,
+        R.drawable.ic_palette, R.drawable.ic_accessibility, R.drawable.ic_help};
     static {
         I18n.a("Accept speed", "स्वीकार की गति", "అంగీకార వేగం");
         I18n.a("Mileage", "माइलेज", "మైలేజ్");
@@ -1254,7 +1354,41 @@ public class MainActivity extends Activity {
         I18n.a("Off", "बंद", "ఆఫ్");
     }
 
+    static final int[] ORDER = {0, 1, 2, 3, 9, 4, 5, 6, 10, 7, 8, 11}; // menu order; the numbers are the page ids
+
+    Bitmap logoBitmap() {
+        try (java.io.InputStream in = getAssets().open("logo.png")) { return android.graphics.BitmapFactory.decodeStream(in); }
+        catch (java.io.IOException ex) { return null; }
+    }
+
+    /** A made-up ride with the given rating, for the chip preview. */
+    AcceptService.Card sampleCard(int verdict) {
+        AcceptService.Card k = new AcceptService.Card();
+        double[] fare = {15, 24, 33};
+        k.fare = fare[verdict]; k.base = k.fare; k.pickup = 1.6; k.drop = 2.1; k.dist = 3.7;
+        k.fuel = 9; k.perKm = k.fare / k.dist; k.verdict = verdict; k.tag = verdict == 2 ? "Go To" : "";
+        return k;
+    }
+
+    void fixSetup() {
+        boolean batt = ((PowerManager) getSystemService(POWER_SERVICE)).isIgnoringBatteryOptimizations(getPackageName());
+        if (!AcceptService.connected) startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+        else if (!batt) startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+        else Toast.makeText(this, L(driverAppInstalled() ? "Everything is set up" : "No selected driver app found on this phone."), Toast.LENGTH_LONG).show();
+    }
+
+    String sectionSummaryExtra(int i) {
+        String[] sizes = {"Small", "Medium", "Large", "Extra large"}, texts = {"Normal", "Large", "Larger", "Largest"};
+        if (i == 9) return L(ChipView.STYLES[Math.max(0, Math.min(3, sp.getInt("chip_style", 1)))]) + "  ·  " + L(sizes[Math.max(0, Math.min(3, sp.getInt("chip_size", 1)))]);
+        if (i == 10) {
+            int ts = sp.contains("text_scale") ? sp.getInt("text_scale", 0) : (sp.getBoolean("large", false) ? 1 : 0);
+            return L(texts[Math.max(0, Math.min(3, ts))]) + (sp.getInt("speak", 0) > 0 ? "  ·  " + L("Spoken alerts") : "");
+        }
+        return L("Quick guide");
+    }
+
     int settingsPage = -1; // -1 = menu
+    int testVerdict = 2;  // the next alert the Test button plays: 2 Worth it, 1 Average, 0 Low
 
     void settings() { if (settingsPage < 0) settingsMenu(); else settingsSection(settingsPage); }
 
@@ -1281,6 +1415,7 @@ public class MainActivity extends Activity {
             case 5: return n(pref(sp, "mile_Bike", 45)) + "  ·  " + n(pref(sp, "mile_Auto", 25)) + "  ·  " + n(pref(sp, "mile_Car", 15)) + " km/L";
             case 6: return pref(sp, "goal", 0) > 0 ? "₹" + n(pref(sp, "goal", 0)) + " / " + L("Daily goal").toLowerCase() : L("No goal");
             case 7: return LANG_NAMES[Math.max(0, Arrays.asList(LANGS).indexOf(sp.getString("lang", "en")))];
+            case 9: case 10: case 11: return sectionSummaryExtra(i);
             default: {
                 List<String> on = new ArrayList<>();
                 for (String[] a : APPS) if (sp.getString("pkgs", DEFAULT_PKGS).contains(a[1].split(",")[0])) on.add(a[0]);
@@ -1295,9 +1430,9 @@ public class MainActivity extends Activity {
         label(root, "Choose which rides are accepted.", 14, SUBTLE, "sans-serif", 4);
         LinearLayout c = card(root, 16);
         c.setPadding(dp(16), dp(4), dp(16), dp(4));
-        for (int i = 0; i < SECTIONS.length; i++) {
-            final int idx = i;
-            if (i > 0) divider(c, 0);
+        for (int o = 0; o < ORDER.length; o++) {
+            final int i = ORDER[o], idx = i;
+            if (o > 0) divider(c, 0);
             LinearLayout r = row();
             r.setPadding(0, dp(10), 0, dp(10));
             r.addView(badge(SECTION_ICONS[i], ACCENT_SOFT, ACCENT, 38, 0));
@@ -1320,6 +1455,7 @@ public class MainActivity extends Activity {
         LinearLayout head = row();
         FrameLayout back = badge(R.drawable.ic_chevron_right, SURFACE, TEXT, 40, LINE);
         back.setRotation(180);
+        back.setContentDescription(L("Back"));
         back.setOnClickListener(v -> { settingsPage = -1; settings(); });
         head.addView(back);
         TextView title = tv(SECTIONS[i], 20, TEXT, "sans-serif-medium");
@@ -1361,10 +1497,14 @@ public class MainActivity extends Activity {
                 EditText stayAreas = field(c, "Stay In areas", "Place names. Both the pickup and the drop must be inside.", sp.getString("stay_areas", ""), InputType.TYPE_CLASS_TEXT, 4);
                 CheckBox stayStrict = check("Only accept rides inside Stay In", sp.getBoolean("stay_strict", false));
                 c.addView(stayStrict);
-                label(c, "Priority: Go To first, then Stay In, then nearest pickup.", 13, SUBTLE, "sans-serif", 12);
+                label(c, "Then prefer", 14, TEXT, "sans-serif-medium", 14);
+                final int[] sortSel = {Math.max(0, Math.min(3, sp.getInt("sort", 0)))};
+                segmented(c, new String[]{"Nearest", "Best ₹/km", "Top fare", "Most kept"}, sortSel[0], 6, k -> sortSel[0] = k);
+                label(c, "Priority: Go To first, then Stay In, then your choice below.", 13, SUBTLE, "sans-serif", 8);
                 save[0] = () -> sp.edit().putBoolean("goto_on", goOn.isChecked()).putString("goto_areas", goAreas.getText().toString())
                     .putBoolean("goto_strict", goStrict.isChecked()).putBoolean("stay_on", stayOn.isChecked())
-                    .putString("stay_areas", stayAreas.getText().toString()).putBoolean("stay_strict", stayStrict.isChecked()).apply();
+                    .putString("stay_areas", stayAreas.getText().toString()).putBoolean("stay_strict", stayStrict.isChecked())
+                    .putInt("sort", sortSel[0]).apply();
                 break;
             }
             case 2: {
@@ -1420,12 +1560,18 @@ public class MainActivity extends Activity {
             }
             case 7: {
                 label(c, "Language", 14, TEXT, "sans-serif-medium", 0);
-                String[] lang = {sp.getString("lang", "en")};
-                segmented(c, LANG_NAMES, Math.max(0, Arrays.asList(LANGS).indexOf(lang[0])), 8, k -> lang[0] = LANGS[k]);
+                final String[] lang = {sp.getString("lang", "en")};
+                Spinner langSpin = new Spinner(this);
+                langSpin.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, LANG_NAMES));
+                langSpin.setSelection(Math.max(0, Arrays.asList(LANGS).indexOf(lang[0])));
+                langSpin.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                    @Override public void onItemSelected(AdapterView<?> p, View v, int pos, long id) { lang[0] = LANGS[pos]; }
+                    @Override public void onNothingSelected(AdapterView<?> p) { }
+                });
+                c.addView(langSpin);
                 CheckBox darkBox = check("Dark mode", sp.getBoolean("dark", true));
                 CheckBox bubble = check("Show the floating Vamsify bubble over driver apps", sp.getBoolean("bubble", true));
                 CheckBox trip = check("Show trip details after accepting", sp.getBoolean("trip", true));
-                CheckBox large = check("Large text and bigger buttons", sp.getBoolean("large", false));
                 CheckBox onehand = check("One-hand layout (main controls at the bottom)", sp.getBoolean("onehand", false));
                 CheckBox notif = check("Pause and resume notification", sp.getBoolean("notif", true));
                 CheckBox summary = check("Daily summary at 9 PM", sp.getBoolean("summary", true));
@@ -1433,16 +1579,109 @@ public class MainActivity extends Activity {
                 cl.topMargin = dp(12);
                 c.addView(darkBox, cl);
                 c.addView(bubble, new LinearLayout.LayoutParams(-1, -2));
-                for (CheckBox cb : new CheckBox[]{trip, large, onehand, notif, summary}) c.addView(cb, new LinearLayout.LayoutParams(-1, -2));
+                for (CheckBox cb : new CheckBox[]{trip, onehand, notif, summary}) c.addView(cb, new LinearLayout.LayoutParams(-1, -2));
                 save[0] = () -> {
-                    redraw[0] = darkBox.isChecked() != sp.getBoolean("dark", true) || !lang[0].equals(sp.getString("lang", "en")) || large.isChecked() != sp.getBoolean("large", false)
+                    redraw[0] = darkBox.isChecked() != sp.getBoolean("dark", true) || !lang[0].equals(sp.getString("lang", "en"))
                         || onehand.isChecked() != sp.getBoolean("onehand", false);
                     sp.edit().putString("lang", lang[0]).putBoolean("dark", darkBox.isChecked()).putBoolean("bubble", bubble.isChecked()).putBoolean("trip", trip.isChecked())
-                        .putBoolean("large", large.isChecked()).putBoolean("onehand", onehand.isChecked())
+                        .putBoolean("onehand", onehand.isChecked())
                         .putBoolean("notif", notif.isChecked()).putBoolean("summary", summary.isChecked()).apply();
                     if (notif.isChecked() || summary.isChecked()) askNotificationPermission();
                     scheduleSummary(this);
                 };
+                break;
+            }
+            case 9: { // chip style: every choice applies at once and the preview above updates
+                final LinearLayout pv = col();
+                HorizontalScrollView hs = new HorizontalScrollView(this);
+                hs.setHorizontalScrollBarEnabled(false);
+                hs.addView(pv);
+                c.addView(hs);
+                final Bitmap lb = logoBitmap();
+                final Runnable[] refresh = new Runnable[1];
+                refresh[0] = () -> {
+                    pv.removeAllViews();
+                    for (int v = 2; v >= 0; v--) {
+                        ChipView cv = new ChipView(this, lb);
+                        cv.bind(sampleCard(v), sp);
+                        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+                        lp.topMargin = dp(v == 2 ? 0 : 8);
+                        pv.addView(cv, lp);
+                    }
+                };
+                refresh[0].run();
+                label(c, "Size", 14, TEXT, "sans-serif-medium", 14);
+                segmented(c, new String[]{"Small", "Medium", "Large", "Extra large"}, Math.max(0, Math.min(3, sp.getInt("chip_size", 1))), 6, k -> { sp.edit().putInt("chip_size", k).apply(); refresh[0].run(); });
+                label(c, "Style", 14, TEXT, "sans-serif-medium", 12);
+                segmented(c, ChipView.STYLES, Math.max(0, Math.min(3, sp.getInt("chip_style", 1))), 6, k -> { sp.edit().putInt("chip_style", k).apply(); refresh[0].run(); });
+                label(c, "See-through", 14, TEXT, "sans-serif-medium", 12);
+                segmented(c, new String[]{"Solid", "Soft", "Faint"}, Math.max(0, Math.min(2, sp.getInt("chip_alpha", 0))), 6, k -> { sp.edit().putInt("chip_alpha", k).apply(); refresh[0].run(); });
+                label(c, "Position", 14, TEXT, "sans-serif-medium", 12);
+                segmented(c, new String[]{"Automatic", "Beside the distance"}, Math.max(0, Math.min(1, sp.getInt("chip_pos", 0))), 6, k -> sp.edit().putInt("chip_pos", k).apply());
+                label(c, "You can also tap a chip on a ride card to move it between these positions.", 13, SUBTLE, "sans-serif", 6);
+                CheckBox logoBox = check("Show the logo", sp.getBoolean("chip_logo", true));
+                logoBox.setOnCheckedChangeListener((b, on) -> { sp.edit().putBoolean("chip_logo", on).apply(); refresh[0].run(); });
+                LinearLayout.LayoutParams lcl = new LinearLayout.LayoutParams(-1, -2);
+                lcl.topMargin = dp(10);
+                c.addView(logoBox, lcl);
+                button(c, "Preview on a sample screen", false, 8).setOnClickListener(v -> {
+                    if (AcceptService.instance == null) Toast.makeText(this, L("Turn on the service first"), Toast.LENGTH_LONG).show();
+                    else startActivity(new Intent(this, SampleActivity.class));
+                });
+                save[0] = () -> { };
+                break;
+            }
+            case 10: { // accessibility
+                final int[] ts = {Math.max(0, Math.min(3, sp.contains("text_scale") ? sp.getInt("text_scale", 0) : (sp.getBoolean("large", false) ? 1 : 0)))};
+                label(c, "Text size", 14, TEXT, "sans-serif-medium", 0);
+                segmented(c, new String[]{"Normal", "Large", "Larger", "Largest"}, ts[0], 6, k -> ts[0] = k);
+                CheckBox hc = check("High contrast text", sp.getBoolean("hc", false));
+                CheckBox cb = check("Colour-blind symbols on every rating", sp.getBoolean("cb_symbols", true));
+                CheckBox taps = check("Bigger buttons and tap areas", sp.getBoolean("big_taps", false));
+                CheckBox flash = check("Flash the screen for each ride", sp.getBoolean("flash", false));
+                CheckBox vib = check("Vibrate differently for Average and Low", sp.getBoolean("vib_verdict", false));
+                CheckBox voice = check("Voice-first mode", sp.getBoolean("voice", false));
+                LinearLayout.LayoutParams cl2 = new LinearLayout.LayoutParams(-1, -2);
+                cl2.topMargin = dp(10);
+                c.addView(hc, cl2);
+                for (CheckBox x : new CheckBox[]{cb, taps, flash, vib, voice}) c.addView(x, new LinearLayout.LayoutParams(-1, -2));
+                label(c, "Voice-first mode speaks every ride, every accept and every on/off change, and closes the trip card on its own.", 13, SUBTLE, "sans-serif", 4);
+                label(c, "Spoken alerts", 14, TEXT, "sans-serif-medium", 14);
+                final int[] speak = {Math.max(0, Math.min(2, sp.getInt("speak", 0)))};
+                segmented(c, new String[]{"Off", "Worth it only", "Every ride"}, speak[0], 6, k -> speak[0] = k);
+                label(c, "Spoken in the app language when the phone has that voice; otherwise in English.", 13, SUBTLE, "sans-serif", 6);
+                button(c, "Test the alerts", false, 12).setOnClickListener(v -> { // saves the choices above, then plays Worth it, Average, Low in turn
+                    save[0].run();
+                    AcceptService svc = AcceptService.instance;
+                    if (svc == null) Toast.makeText(this, L("Turn on the service first"), Toast.LENGTH_LONG).show();
+                    else { svc.testAlerts(testVerdict); testVerdict = (testVerdict + 2) % 3; }
+                });
+                save[0] = () -> {
+                    redraw[0] = redraw[0] || ts[0] != Math.max(0, Math.min(3, sp.contains("text_scale") ? sp.getInt("text_scale", 0) : (sp.getBoolean("large", false) ? 1 : 0)))
+                        || hc.isChecked() != sp.getBoolean("hc", false) || taps.isChecked() != sp.getBoolean("big_taps", false);
+                    sp.edit().putInt("text_scale", ts[0]).putBoolean("hc", hc.isChecked()).putBoolean("cb_symbols", cb.isChecked())
+                        .putBoolean("big_taps", taps.isChecked()).putBoolean("flash", flash.isChecked()).putBoolean("vib_verdict", vib.isChecked())
+                        .putBoolean("voice", voice.isChecked()).putInt("speak", speak[0]).apply();
+                };
+                break;
+            }
+            case 11: { // help
+                label(c, "Quick guide", 16, TEXT, "sans-serif-medium", 0);
+                numbered(c, 1, L("Turn on Vamsify under Accessibility settings."), 10);
+                numbered(c, 2, L("Pick your driver apps and your filters in Settings."), 10);
+                numbered(c, 3, L("Tap Try a sample ride on Home to see the chips."), 10);
+                numbered(c, 4, L("Go online in your driver app and keep the screen on."), 10);
+                label(c, "What the chip colours mean", 14, TEXT, "sans-serif-medium", 14);
+                String[] legend = {"✓  " + L("Worth it") + ": " + L("pays at least your target per km."), "~  " + L("Average") + ": " + L("within 25% of your target."), "✕  " + L("Low") + ": " + L("pays well below your target.")};
+                int[] lcol = {OK, 0xFFE0A800, WARN};
+                for (int q = 0; q < 3; q++) {
+                    TextView t = label(c, legend[q], 14, lcol[q], "sans-serif-medium", 6);
+                    t.setTypeface(Typeface.DEFAULT_BOLD);
+                }
+                healthCard(root);
+                button(root, "Fix my setup", true, 12).setOnClickListener(v -> fixSetup());
+                button(root, "Replay the setup tour", false, 8).setOnClickListener(v -> { step = 0; settingsPage = -1; onboard(); });
+                save[0] = () -> { };
                 break;
             }
             default: {
@@ -1451,9 +1690,9 @@ public class MainActivity extends Activity {
             }
         }
 
-        button(root, "Save changes", true, 16).setOnClickListener(v -> {
+        button(root, i == 11 ? "Done" : "Save changes", true, 16).setOnClickListener(v -> {
             save[0].run();
-            Toast.makeText(this, L("Changes saved"), Toast.LENGTH_SHORT).show();
+            if (i != 11) Toast.makeText(this, L("Changes saved"), Toast.LENGTH_SHORT).show();
             if (redraw[0]) { recreate(); return; }
             settingsPage = -1;
             settings();

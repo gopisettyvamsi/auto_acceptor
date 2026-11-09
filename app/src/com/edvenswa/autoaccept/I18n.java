@@ -11,15 +11,31 @@ import java.util.Map;
 public class I18n {
     static final Map<String, String[]> M = new HashMap<>();
 
-    static String t(SharedPreferences sp, String en) {
-        String lang = sp.getString("lang", "en");
+    static final String[] CODES = {"hi", "te", "ta", "kn", "mr", "bn"};
+
+    static String t(SharedPreferences sp, String en) { return tl(sp.getString("lang", "en"), en); }
+
+    /** Translate to an explicit language code ("hi", "ta"...); English when there is no translation. */
+    static String tl(String lang, String en) {
         if (lang.equals("en")) return en;
         String[] v = M.get(en);
         if (v == null) return en;
-        return lang.equals("hi") ? v[0] : v[1];
+        for (int i = 0; i < CODES.length; i++)
+            if (CODES[i].equals(lang)) return v[i] != null ? v[i] : en;
+        return en;
     }
 
-    static void a(String en, String hi, String te) { M.put(en, new String[]{hi, te}); }
+    private static String[] row(String en) {
+        String[] v = M.get(en);
+        if (v == null) { v = new String[CODES.length]; M.put(en, v); }
+        return v;
+    }
+
+    /** Hindi and Telugu. */
+    static void a(String en, String hi, String te) { String[] v = row(en); v[0] = hi; v[1] = te; }
+
+    /** Tamil, Kannada, Marathi, Bengali. */
+    static void b(String en, String ta, String kn, String mr, String bn) { String[] v = row(en); v[2] = ta; v[3] = kn; v[4] = mr; v[5] = bn; }
 
     static {
         // navigation and home
@@ -240,4 +256,6 @@ public class I18n {
         a("Distance not shown, so earnings per km can't be checked", "दूरी नहीं दिखी, इसलिए प्रति किमी कमाई की जाँच नहीं हो सकती", "దూరం చూపలేదు, అందువల్ల కిమీకి సంపాదన తనిఖీ చేయలేము");
         a("Pays ₹%s per km, below your minimum of ₹%s", "₹%s प्रति किमी देती है, आपके न्यूनतम ₹%s से कम", "కిమీకి ₹%s ఇస్తుంది, మీ కనీసం ₹%s కన్నా తక్కువ");
     }
+
+    static { MoreLanguages.register(); NewStrings.register(); }
 }
