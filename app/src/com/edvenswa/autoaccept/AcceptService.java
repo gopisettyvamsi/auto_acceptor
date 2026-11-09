@@ -98,6 +98,8 @@ public class AcceptService extends AccessibilityService {
         double fare, base, bonus, perKm, dist, fuel; // fare = base + any extra the customer added
         int rank;      // 2 = matches Go To, 1 = matches Stay In, 0 = neither
         String tag = "";
+        String status = "";      // why this ride is or is not being auto-accepted, shown on its chip
+        boolean statusGood;
         Double pickup, drop;
         int mins = -1, verdict = -1;
     }
@@ -138,6 +140,7 @@ public class AcceptService extends AccessibilityService {
 
     @Override protected void onServiceConnected() {
         connected = true; instance = this;
+        PrefsGuard.sanitize(prefs());
         IntentFilter f = new IntentFilter(ACTION_TOGGLE);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(toggleRcv, f, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(toggleRcv, f);
@@ -282,6 +285,22 @@ public class AcceptService extends AccessibilityService {
         }
         sp.edit().putString("dump", "pkg=" + pkg + " cards=" + cards.size() + "\n" + summary + "\n" + dump).apply();
 
+        // which card auto-accept takes, and a plain-language status for every card (shown on its chip)
+        Card pick = null;
+        boolean cooling = auto && now - lastClick < 4000;
+        if (auto && !cooling)
+            for (Card c : cards)
+                if (c.accept != null && c.reason == null && (pick == null || better(c, pick, PrefsGuard.getInt(sp, "sort", 0)))) pick = c;
+        for (Card c : cards) {
+            c.statusGood = c == pick;
+            if (!auto) c.status = I18n.t(sp, "Auto-accept is paused");
+            else if (c == pick) c.status = I18n.t(sp, "Accepting this ride");
+            else if (c.reason != null) c.status = c.reason;
+            else if (c.accept == null) c.status = I18n.t(sp, "Accept button not visible");
+            else if (cooling) c.status = I18n.t(sp, "Waiting after the last accept");
+            else c.status = I18n.t(sp, "Another ride has priority");
+        }
+
         if (showChip) showChips(cards); else removeChips();
         curPkg = pkg;
         h.removeCallbacks(tick);
@@ -294,11 +313,6 @@ public class AcceptService extends AccessibilityService {
         }
         if (bestNew != null) notifyRide(sp, bestNew);
 
-        // auto-accept: of the cards that pass the filters, take the one with the nearest pickup
-        Card pick = null;
-        if (auto && now - lastClick >= 4000)
-            for (Card c : cards)
-                if (c.accept != null && c.reason == null && (pick == null || better(c, pick, sp.getInt("sort", 0)))) pick = c;
         double near = MainActivity.pref(sp, "near", 0); // instant-accept radius: nearby pickups are tapped with no delay
         if (pick != null) {
             final Card chosen = pick;
@@ -560,7 +574,7 @@ public class AcceptService extends AccessibilityService {
     void relayoutChips(DisplayMetrics dm) {
         float d = density();
         int margin = (int) (8 * d);
-        int pos = prefs().getInt("chip_pos", 0); // 0 automatic (beside the fare when it fits), 1 always beside the distance
+        int pos = PrefsGuard.getInt(prefs(), "chip_pos", 0); // 0 automatic (beside the fare when it fits), 1 always beside the distance
         for (int i = 0; i < chips.size(); i++) {
             ChipView t = chips.get(i);
             WindowManager.LayoutParams lp = (WindowManager.LayoutParams) t.getLayoutParams();
@@ -588,7 +602,7 @@ public class AcceptService extends AccessibilityService {
     /** Tap on a chip: move every chip to the next position. A switch for drivers who cannot drag. */
     void cyclePosition() {
         SharedPreferences sp = prefs();
-        int p = (Math.min(1, sp.getInt("chip_pos", 0)) + 1) % 2;
+        int p = (Math.min(1, PrefsGuard.getInt(sp, "chip_pos", 0)) + 1) % 2;
         sp.edit().putInt("chip_pos", p).apply();
         drag.clear();
         relayoutChips(getResources().getDisplayMetrics());
@@ -771,8 +785,8 @@ public class AcceptService extends AccessibilityService {
         bubbleLp = new WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT);
         bubbleLp.gravity = Gravity.TOP | Gravity.START;
-        bubbleLp.x = sp.getInt("bx", (int) (8 * d));
-        bubbleLp.y = sp.getInt("by", (int) (220 * d));
+        bubbleLp.x = PrefsGuard.getInt(sp, "bx", (int) (8 * d));
+        bubbleLp.y = PrefsGuard.getInt(sp, "by", (int) (220 * d));
         final WindowManager wm = wm();
         bubble.setOnTouchListener(new View.OnTouchListener() {
             float sx, sy; int ox, oy; boolean moved; long down;
@@ -838,7 +852,7 @@ public class AcceptService extends AccessibilityService {
         if (c.verdict == 2 && sp.getBoolean("alert", true)) alert();
         else if (sp.getBoolean("vib_verdict", false) && c.verdict < 2 && vib != null)
             vib.vibrate(c.verdict == 1 ? new long[]{0, 250} : new long[]{0, 600}, -1); // Average: one medium buzz; Low: one long buzz
-        int speak = sp.getBoolean("voice", false) ? 2 : sp.getInt("speak", 0); // voice-first speaks every ride
+        int speak = sp.getBoolean("voice", false) ? 2 : PrefsGuard.getInt(sp, "speak", 0); // voice-first speaks every ride
         if (speak == 2 || (speak == 1 && c.verdict == 2)) speak(sp, c);
         if (sp.getBoolean("flash", false)) flash(c.verdict);
     }

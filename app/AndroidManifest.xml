@@ -9,7 +9,7 @@
         <package android:name="com.ubercab.driver"/>
         <package android:name="com.olacabs.oladriver"/>
     </queries>
-    <application android:label="Vamsify" android:icon="@mipmap/ic_launcher"
+    <application android:enableOnBackInvokedCallback="false" android:label="Vamsify" android:icon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>

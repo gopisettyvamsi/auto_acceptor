@@ -298,7 +298,7 @@ public class MainActivity extends Activity {
     String F(String template, Object... a) { return String.format(Locale.US, L(template), a); }
     static final float[] TEXT_SCALES = {1f, 1.15f, 1.3f, 1.5f};
     float scale() {
-        int i = sp.contains("text_scale") ? sp.getInt("text_scale", 0) : (sp.getBoolean("large", false) ? 1 : 0);
+        int i = sp.contains("text_scale") ? PrefsGuard.getInt(sp, "text_scale", 0) : (sp.getBoolean("large", false) ? 1 : 0);
         return TEXT_SCALES[Math.max(0, Math.min(3, i))];
     }
     float taps() { return sp.getBoolean("big_taps", false) ? 1.25f : 1f; }
@@ -1047,13 +1047,13 @@ public class MainActivity extends Activity {
         if (sp.getBoolean("goto_on", false)) p.add("Go To");
         if (sp.getBoolean("stay_on", false)) p.add("Stay In");
         String[] sorts = {"Nearest", "Best ₹/km", "Top fare", "Most kept"};
-        p.add(L(sorts[Math.max(0, Math.min(3, sp.getInt("sort", 0)))]));
+        p.add(L(sorts[Math.max(0, Math.min(3, PrefsGuard.getInt(sp, "sort", 0)))]));
         return android.text.TextUtils.join("  →  ", p);
     }
 
     String alertsSummary() {
         List<String> a = new ArrayList<>();
-        if (sp.getBoolean("voice", false) || sp.getInt("speak", 0) > 0) a.add(L("Spoken alerts"));
+        if (sp.getBoolean("voice", false) || PrefsGuard.getInt(sp, "speak", 0) > 0) a.add(L("Spoken alerts"));
         if (sp.getBoolean("flash", false)) a.add(L("Flash"));
         if (sp.getBoolean("alert", true) || sp.getBoolean("vib_verdict", false)) a.add(L("Vibration"));
         return a.isEmpty() ? L("Off") : android.text.TextUtils.join("  ·  ", a);
@@ -1367,6 +1367,9 @@ public class MainActivity extends Activity {
         double[] fare = {15, 24, 33};
         k.fare = fare[verdict]; k.base = k.fare; k.pickup = 1.6; k.drop = 2.1; k.dist = 3.7;
         k.fuel = 9; k.perKm = k.fare / k.dist; k.verdict = verdict; k.tag = verdict == 2 ? "Go To" : "";
+        k.status = verdict == 2 ? L("Accepting this ride") : verdict == 1 ? L("Another ride has priority")
+            : F("Pays \u20B9%s per km, below your minimum of \u20B9%s", "4.1", "6");
+        k.statusGood = verdict == 2;
         return k;
     }
 
@@ -1379,10 +1382,10 @@ public class MainActivity extends Activity {
 
     String sectionSummaryExtra(int i) {
         String[] sizes = {"Small", "Medium", "Large", "Extra large"}, texts = {"Normal", "Large", "Larger", "Largest"};
-        if (i == 9) return L(ChipView.STYLES[Math.max(0, Math.min(3, sp.getInt("chip_style", 1)))]) + "  ·  " + L(sizes[Math.max(0, Math.min(3, sp.getInt("chip_size", 1)))]);
+        if (i == 9) return L(ChipView.STYLES[Math.max(0, Math.min(3, PrefsGuard.getInt(sp, "chip_style", 1)))]) + "  ·  " + L(sizes[Math.max(0, Math.min(3, PrefsGuard.getInt(sp, "chip_size", 1)))]);
         if (i == 10) {
-            int ts = sp.contains("text_scale") ? sp.getInt("text_scale", 0) : (sp.getBoolean("large", false) ? 1 : 0);
-            return L(texts[Math.max(0, Math.min(3, ts))]) + (sp.getInt("speak", 0) > 0 ? "  ·  " + L("Spoken alerts") : "");
+            int ts = sp.contains("text_scale") ? PrefsGuard.getInt(sp, "text_scale", 0) : (sp.getBoolean("large", false) ? 1 : 0);
+            return L(texts[Math.max(0, Math.min(3, ts))]) + (PrefsGuard.getInt(sp, "speak", 0) > 0 ? "  ·  " + L("Spoken alerts") : "");
         }
         return L("Quick guide");
     }
@@ -1498,7 +1501,7 @@ public class MainActivity extends Activity {
                 CheckBox stayStrict = check("Only accept rides inside Stay In", sp.getBoolean("stay_strict", false));
                 c.addView(stayStrict);
                 label(c, "Then prefer", 14, TEXT, "sans-serif-medium", 14);
-                final int[] sortSel = {Math.max(0, Math.min(3, sp.getInt("sort", 0)))};
+                final int[] sortSel = {Math.max(0, Math.min(3, PrefsGuard.getInt(sp, "sort", 0)))};
                 segmented(c, new String[]{"Nearest", "Best ₹/km", "Top fare", "Most kept"}, sortSel[0], 6, k -> sortSel[0] = k);
                 label(c, "Priority: Go To first, then Stay In, then your choice below.", 13, SUBTLE, "sans-serif", 8);
                 save[0] = () -> sp.edit().putBoolean("goto_on", goOn.isChecked()).putString("goto_areas", goAreas.getText().toString())
@@ -1611,19 +1614,22 @@ public class MainActivity extends Activity {
                 };
                 refresh[0].run();
                 label(c, "Size", 14, TEXT, "sans-serif-medium", 14);
-                segmented(c, new String[]{"Small", "Medium", "Large", "Extra large"}, Math.max(0, Math.min(3, sp.getInt("chip_size", 1))), 6, k -> { sp.edit().putInt("chip_size", k).apply(); refresh[0].run(); });
+                segmented(c, new String[]{"Small", "Medium", "Large", "Extra large"}, Math.max(0, Math.min(3, PrefsGuard.getInt(sp, "chip_size", 1))), 6, k -> { sp.edit().putInt("chip_size", k).apply(); refresh[0].run(); });
                 label(c, "Style", 14, TEXT, "sans-serif-medium", 12);
-                segmented(c, ChipView.STYLES, Math.max(0, Math.min(3, sp.getInt("chip_style", 1))), 6, k -> { sp.edit().putInt("chip_style", k).apply(); refresh[0].run(); });
+                segmented(c, ChipView.STYLES, Math.max(0, Math.min(3, PrefsGuard.getInt(sp, "chip_style", 1))), 6, k -> { sp.edit().putInt("chip_style", k).apply(); refresh[0].run(); });
                 label(c, "See-through", 14, TEXT, "sans-serif-medium", 12);
-                segmented(c, new String[]{"Solid", "Soft", "Faint"}, Math.max(0, Math.min(2, sp.getInt("chip_alpha", 0))), 6, k -> { sp.edit().putInt("chip_alpha", k).apply(); refresh[0].run(); });
+                segmented(c, new String[]{"Solid", "Soft", "Faint"}, Math.max(0, Math.min(2, PrefsGuard.getInt(sp, "chip_alpha", 0))), 6, k -> { sp.edit().putInt("chip_alpha", k).apply(); refresh[0].run(); });
                 label(c, "Position", 14, TEXT, "sans-serif-medium", 12);
-                segmented(c, new String[]{"Automatic", "Beside the distance"}, Math.max(0, Math.min(1, sp.getInt("chip_pos", 0))), 6, k -> sp.edit().putInt("chip_pos", k).apply());
+                segmented(c, new String[]{"Automatic", "Beside the distance"}, Math.max(0, Math.min(1, PrefsGuard.getInt(sp, "chip_pos", 0))), 6, k -> sp.edit().putInt("chip_pos", k).apply());
                 label(c, "You can also tap a chip on a ride card to move it between these positions.", 13, SUBTLE, "sans-serif", 6);
                 CheckBox logoBox = check("Show the logo", sp.getBoolean("chip_logo", true));
                 logoBox.setOnCheckedChangeListener((b, on) -> { sp.edit().putBoolean("chip_logo", on).apply(); refresh[0].run(); });
                 LinearLayout.LayoutParams lcl = new LinearLayout.LayoutParams(-1, -2);
                 lcl.topMargin = dp(10);
                 c.addView(logoBox, lcl);
+                CheckBox whyBox = check("Show why a ride isn't auto-accepted", sp.getBoolean("chip_why", true));
+                whyBox.setOnCheckedChangeListener((b, on) -> { sp.edit().putBoolean("chip_why", on).apply(); refresh[0].run(); });
+                c.addView(whyBox, new LinearLayout.LayoutParams(-1, -2));
                 button(c, "Preview on a sample screen", false, 8).setOnClickListener(v -> {
                     if (AcceptService.instance == null) Toast.makeText(this, L("Turn on the service first"), Toast.LENGTH_LONG).show();
                     else startActivity(new Intent(this, SampleActivity.class));
@@ -1632,7 +1638,7 @@ public class MainActivity extends Activity {
                 break;
             }
             case 10: { // accessibility
-                final int[] ts = {Math.max(0, Math.min(3, sp.contains("text_scale") ? sp.getInt("text_scale", 0) : (sp.getBoolean("large", false) ? 1 : 0)))};
+                final int[] ts = {Math.max(0, Math.min(3, sp.contains("text_scale") ? PrefsGuard.getInt(sp, "text_scale", 0) : (sp.getBoolean("large", false) ? 1 : 0)))};
                 label(c, "Text size", 14, TEXT, "sans-serif-medium", 0);
                 segmented(c, new String[]{"Normal", "Large", "Larger", "Largest"}, ts[0], 6, k -> ts[0] = k);
                 CheckBox hc = check("High contrast text", sp.getBoolean("hc", false));
@@ -1647,7 +1653,7 @@ public class MainActivity extends Activity {
                 for (CheckBox x : new CheckBox[]{cb, taps, flash, vib, voice}) c.addView(x, new LinearLayout.LayoutParams(-1, -2));
                 label(c, "Voice-first mode speaks every ride, every accept and every on/off change, and closes the trip card on its own.", 13, SUBTLE, "sans-serif", 4);
                 label(c, "Spoken alerts", 14, TEXT, "sans-serif-medium", 14);
-                final int[] speak = {Math.max(0, Math.min(2, sp.getInt("speak", 0)))};
+                final int[] speak = {Math.max(0, Math.min(2, PrefsGuard.getInt(sp, "speak", 0)))};
                 segmented(c, new String[]{"Off", "Worth it only", "Every ride"}, speak[0], 6, k -> speak[0] = k);
                 label(c, "Spoken in the app language when the phone has that voice; otherwise in English.", 13, SUBTLE, "sans-serif", 6);
                 button(c, "Test the alerts", false, 12).setOnClickListener(v -> { // saves the choices above, then plays Worth it, Average, Low in turn
@@ -1657,7 +1663,7 @@ public class MainActivity extends Activity {
                     else { svc.testAlerts(testVerdict); testVerdict = (testVerdict + 2) % 3; }
                 });
                 save[0] = () -> {
-                    redraw[0] = redraw[0] || ts[0] != Math.max(0, Math.min(3, sp.contains("text_scale") ? sp.getInt("text_scale", 0) : (sp.getBoolean("large", false) ? 1 : 0)))
+                    redraw[0] = redraw[0] || ts[0] != Math.max(0, Math.min(3, sp.contains("text_scale") ? PrefsGuard.getInt(sp, "text_scale", 0) : (sp.getBoolean("large", false) ? 1 : 0)))
                         || hc.isChecked() != sp.getBoolean("hc", false) || taps.isChecked() != sp.getBoolean("big_taps", false);
                     sp.edit().putInt("text_scale", ts[0]).putBoolean("hc", hc.isChecked()).putBoolean("cb_symbols", cb.isChecked())
                         .putBoolean("big_taps", taps.isChecked()).putBoolean("flash", flash.isChecked()).putBoolean("vib_verdict", vib.isChecked())
@@ -1704,6 +1710,7 @@ public class MainActivity extends Activity {
     // =====================================================================
     @Override protected void onCreate(Bundle b) {
         sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        PrefsGuard.sanitize(sp); // repair settings saved with another type by an older version
         applyTheme(sp);
         setTheme(dark ? android.R.style.Theme_Material_NoActionBar : android.R.style.Theme_Material_Light_NoActionBar);
         super.onCreate(b);
@@ -1746,6 +1753,18 @@ public class MainActivity extends Activity {
         setContentView(frame);
         scheduleSummary(this);
         if (sp.getBoolean("onboarded", false)) show(0); else onboard();
+    }
+
+    /** Back goes up one level: settings page to the settings list, any tab to Home, a setup step to the previous one. Only Home exits. */
+    @Override public void onBackPressed() {
+        if (!sp.getBoolean("onboarded", false)) {          // first-run setup
+            if (step > 0) { step--; onboard(); return; }
+            super.onBackPressed();
+            return;
+        }
+        if (tab == 3 && settingsPage >= 0) { settingsPage = -1; settings(); return; }
+        if (tab != 0) { show(0); return; }
+        super.onBackPressed();
     }
 
     @Override protected void onResume() {

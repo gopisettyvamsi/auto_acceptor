@@ -26,7 +26,7 @@ class ChipView extends LinearLayout {
 
     String key = ""; // which card this chip belongs to
     final ImageView logo;
-    final TextView main, verdict, keep;
+    final TextView main, verdict, keep, status;
     private final Bitmap logoBmp;
 
     ChipView(Context ctx, Bitmap logoBmp) {
@@ -49,16 +49,32 @@ class ChipView extends LinearLayout {
         keep.setTypeface(Typeface.DEFAULT_BOLD);
         col.addView(verdict);
         col.addView(keep);
+        status = new TextView(ctx);
+        status.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        status.setVisibility(GONE);
+        col.addView(status);
         addView(col);
     }
 
     private float density() { return getResources().getDisplayMetrics().density; }
 
+    /** The line saying why a ride is, or is not, being auto-accepted. Hidden when the driver turns it off. */
+    private void applyStatus(AcceptService.Card c, SharedPreferences sp, float s) {
+        boolean show = sp.getBoolean("chip_why", true) && c.status != null && !c.status.isEmpty();
+        status.setVisibility(show ? VISIBLE : GONE);
+        if (!show) return;
+        status.setText(c.status);
+        status.setTextSize(9.5f * s);
+        status.setTextColor(c.statusGood ? 0xFF5BD68A : 0xFFFFB74D);
+        status.setMaxWidth((int) (150 * s * density())); // long text wraps to a second line instead of widening the chip over the card
+    }
+
     void bind(AcceptService.Card c, SharedPreferences sp) {
         float d = density();
-        int style = Math.max(0, Math.min(3, sp.getInt("chip_style", 1)));
-        float s = SIZES[Math.max(0, Math.min(3, sp.getInt("chip_size", 1)))];
-        int alpha = ALPHAS[Math.max(0, Math.min(2, sp.getInt("chip_alpha", 0)))];
+        int style = Math.max(0, Math.min(3, PrefsGuard.getInt(sp, "chip_style", 1)));
+        float s = SIZES[Math.max(0, Math.min(3, PrefsGuard.getInt(sp, "chip_size", 1)))];
+        int alpha = ALPHAS[Math.max(0, Math.min(2, PrefsGuard.getInt(sp, "chip_alpha", 0)))];
+        applyStatus(c, sp, s);
         boolean showLogo = sp.getBoolean("chip_logo", true), symbols = sp.getBoolean("cb_symbols", true);
 
         setMinimumWidth((int) (MIN_WIDTH_DP[style] * s * d));
