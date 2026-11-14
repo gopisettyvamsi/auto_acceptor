@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -25,6 +26,9 @@ class ChipView extends LinearLayout {
     static final int[] MIN_WIDTH_DP = {150, 214, 250, 190};
 
     String key = ""; // which card this chip belongs to
+    float fit = 1f;  // 1 = the size the driver chose; smaller when the free space on the card is tight
+    private AcceptService.Card lastCard;
+    private SharedPreferences lastSp;
     final ImageView logo;
     final TextView main, verdict, keep, status;
     private final Bitmap logoBmp;
@@ -58,21 +62,40 @@ class ChipView extends LinearLayout {
 
     private float density() { return getResources().getDisplayMetrics().density; }
 
+    /** Natural size at the driver's chosen scale, in pixels. */
+    int[] naturalSize() {
+        fit = 1f;
+        if (lastCard != null) bind(lastCard, lastSp);
+        measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        return new int[]{getMeasuredWidth(), getMeasuredHeight()};
+    }
+
+    /** Shrinks the text step by step until the chip fits in availW x maxH (maxH <= 0 means any height). Never below 70%. */
+    void fitTo(int availW, int maxH) {
+        for (float f : new float[]{1f, 0.92f, 0.85f, 0.78f, 0.7f}) {
+            fit = f;
+            if (lastCard != null) bind(lastCard, lastSp);
+            measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            if (getMeasuredWidth() <= availW && (maxH <= 0 || getMeasuredHeight() <= maxH)) return;
+        }
+    }
+
     /** The line saying why a ride is, or is not, being auto-accepted. Hidden when the driver turns it off. */
     private void applyStatus(AcceptService.Card c, SharedPreferences sp, float s) {
         boolean show = sp.getBoolean("chip_why", true) && c.status != null && !c.status.isEmpty();
         status.setVisibility(show ? VISIBLE : GONE);
         if (!show) return;
         status.setText(c.status);
-        status.setTextSize(9.5f * s);
+        status.setTextSize(9f * s);
         status.setTextColor(c.statusGood ? 0xFF5BD68A : 0xFFFFB74D);
         status.setMaxWidth((int) (150 * s * density())); // long text wraps to a second line instead of widening the chip over the card
     }
 
     void bind(AcceptService.Card c, SharedPreferences sp) {
+        lastCard = c; lastSp = sp;
         float d = density();
         int style = Math.max(0, Math.min(3, PrefsGuard.getInt(sp, "chip_style", 1)));
-        float s = SIZES[Math.max(0, Math.min(3, PrefsGuard.getInt(sp, "chip_size", 1)))];
+        float s = SIZES[Math.max(0, Math.min(3, PrefsGuard.getInt(sp, "chip_size", 1)))] * fit;
         int alpha = ALPHAS[Math.max(0, Math.min(2, PrefsGuard.getInt(sp, "chip_alpha", 0)))];
         applyStatus(c, sp, s);
         boolean showLogo = sp.getBoolean("chip_logo", true), symbols = sp.getBoolean("cb_symbols", true);

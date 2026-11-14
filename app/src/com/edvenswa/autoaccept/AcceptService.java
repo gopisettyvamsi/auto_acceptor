@@ -107,7 +107,8 @@ public class AcceptService extends AccessibilityService {
     final Handler h = new Handler(Looper.getMainLooper());
     final Runnable hideChips = this::removeChips;
     final Runnable hideTrip = this::removeTrip;
-    long lastClick, lastRun, autoTapUntil;
+    long lastClick, lastRun, autoTapUntil, pendingUntil;
+    String pendingKey = "";
     final Set<String> alerted = new HashSet<>(), skipped = new HashSet<>();
     List<Card> lastCards = new ArrayList<>();
     final List<ChipView> chips = new ArrayList<>();
@@ -259,6 +260,8 @@ public class AcceptService extends AccessibilityService {
         }
 
         StringBuilder summary = new StringBuilder();
+        refreshAway(sp);
+        breakReminder(sp);
         // Go To / Stay In: the driver's own priority rules, matched against the addresses on the card
         boolean goOn = sp.getBoolean("goto_on", false), stayOn = sp.getBoolean("stay_on", false);
         boolean strictGo = goOn && sp.getBoolean("goto_strict", false), strictStay = stayOn && sp.getBoolean("stay_strict", false);
@@ -271,7 +274,7 @@ public class AcceptService extends AccessibilityService {
             c.fuel = MainActivity.costPerKm(sp, c.type) * dist;
             c.verdict = Double.isNaN(c.perKm) ? -1 : MainActivity.verdict(c.perKm, MainActivity.targetFor(sp, c.type));
             c.key = c.fare + "|" + c.pickup + "|" + c.drop;
-            c.reason = auto ? decide(sp, c.fare, c.pickup, c.drop) : null;
+            c.reason = auto ? decide(sp, c.fare, c.pickup, c.drop, c.mins, c.type) : null;
             boolean go = goOn && AreaMatch.hasAny(c.dropAddr, goAreas);
             boolean stay = stayOn && AreaMatch.hasAny(c.pickupAddr, stayAreas) && AreaMatch.hasAny(c.dropAddr, stayAreas);
             c.rank = go ? 2 : stay ? 1 : 0;
@@ -287,14 +290,15 @@ public class AcceptService extends AccessibilityService {
 
         // which card auto-accept takes, and a plain-language status for every card (shown on its chip)
         Card pick = null;
-        boolean cooling = auto && now - lastClick < 4000;
+        boolean cooling = auto && now - lastClick < MainActivity.pref(sp, "cool", 4) * 1000;
         if (auto && !cooling)
             for (Card c : cards)
                 if (c.accept != null && c.reason == null && (pick == null || better(c, pick, PrefsGuard.getInt(sp, "sort", 0)))) pick = c;
         for (Card c : cards) {
-            c.statusGood = c == pick;
+            boolean pending = c.key.equals(pendingKey) && now < pendingUntil; // chosen already, waiting out the response delay
+            c.statusGood = c == pick || pending;
             if (!auto) c.status = I18n.t(sp, "Auto-accept is paused");
-            else if (c == pick) c.status = I18n.t(sp, "Accepting this ride");
+            else if (c == pick || pending) c.status = I18n.t(sp, "Accepting this ride") + (c.dist > 0 ? "  ·  " + I18n.t(sp, "Score") + " " + MainActivity.score(sp, c.fare, c.dist, c.type) : "");
             else if (c.reason != null) c.status = c.reason;
             else if (c.accept == null) c.status = I18n.t(sp, "Accept button not visible");
             else if (cooling) c.status = I18n.t(sp, "Waiting after the last accept");
@@ -318,7 +322,8 @@ public class AcceptService extends AccessibilityService {
             final Card chosen = pick;
             long delay = near > 0 && chosen.pickup != null && chosen.pickup <= near ? 0 : (long) MainActivity.pref(sp, "delay", 300);
             lastClick = now; autoTapUntil = now + delay + 2500;
-            if (!pkg.equals(getPackageName())) MainActivity.addHistory(sp, pkg, chosen.fare, chosen.pickup, chosen.drop, chosen.type);
+            pendingKey = chosen.key; pendingUntil = now + delay + 1500;
+            if (!pkg.equals(getPackageName())) { MainActivity.addHistory(sp, pkg, chosen.fare, chosen.pickup, chosen.drop, chosen.type); geocodePickup(sp, chosen.pickupAddr, chosen.fare); }
             h.postDelayed(() -> tap(chosen.accept), delay);
             if (trip) h.postDelayed(() -> showTrip(chosen), delay + 700);
         } else if (reject && now - lastClick >= 4000) {
@@ -328,6 +333,7 @@ public class AcceptService extends AccessibilityService {
                 if (c.reject != null) {
                     final AccessibilityNodeInfo rj = c.reject;
                     lastClick = now;
+                    MainActivity.addSkip(sp, I18n.t(sp, "Declined: rated Low"), c.fare);
                     h.postDelayed(() -> tap(rj), (long) MainActivity.pref(sp, "delay", 300));
                     break;
                 }
@@ -361,7 +367,7 @@ public class AcceptService extends AccessibilityService {
             a.inset(-slack, -slack);
             if (a.contains(r.centerX(), r.centerY())) {
                 lastClick = now;
-                if (!pkg.equals(getPackageName())) MainActivity.addHistory(sp, pkg, c.fare, c.pickup, c.drop, c.type);
+                if (!pkg.equals(getPackageName())) { MainActivity.addHistory(sp, pkg, c.fare, c.pickup, c.drop, c.type); geocodePickup(sp, c.pickupAddr, c.fare); }
                 if (sp.getBoolean("trip", true)) showTrip(c);
                 return;
             }
@@ -540,7 +546,7 @@ public class AcceptService extends AccessibilityService {
             int x, y;
             if (!c.fareBounds.isEmpty()) { x = c.fareBounds.right + (int) (10 * d); y = c.fareBounds.top - (int) (2 * d); }
             else { x = c.acceptBounds.left; y = c.acceptBounds.top - (int) (46 * d); }
-            pos.add(new int[]{x, y, c.fareBounds.height(), c.distBounds.isEmpty() ? -1 : c.distBounds.top, c.distBounds.height()});
+            pos.add(new int[]{x, y, c.fareBounds.height(), c.distBounds.isEmpty() ? -1 : c.distBounds.top, c.distBounds.height(), c.fareBounds.bottom, c.distBounds.right});
             shown.add(c);
         }
         render(sp, shown, pos);
@@ -559,37 +565,53 @@ public class AcceptService extends AccessibilityService {
         float d = density();
         DisplayMetrics dm = getResources().getDisplayMetrics();
         while (chips.size() > cs.size()) { removeChipView(chips.remove(chips.size() - 1)); chipBase.remove(chipBase.size() - 1); }
-        while (chips.size() < cs.size()) { chips.add(newChip()); chipBase.add(new int[5]); }
+        while (chips.size() < cs.size()) { chips.add(newChip()); chipBase.add(new int[7]); }
         for (int i = 0; i < cs.size(); i++) {
             Card c = cs.get(i);
+            chips.get(i).fit = 1f;
             chips.get(i).bind(c, sp);
             chips.get(i).key = c.key;
-            System.arraycopy(pos.get(i), 0, chipBase.get(i), 0, 5);
+            System.arraycopy(pos.get(i), 0, chipBase.get(i), 0, 7);
         }
         relayoutChips(dm);
         h.removeCallbacks(hideChips);
         h.postDelayed(hideChips, 20000); // safety: never leave chips up if events stop
     }
 
+    /**
+     * Puts each chip where it covers nothing: beside the fare when there is room, otherwise on the pickup-distance row
+     * to the right of the distance (never above the fare line, never over the distance number). When the free space is
+     * too small the chip shrinks its own text to fit.
+     */
     void relayoutChips(DisplayMetrics dm) {
         float d = density();
-        int margin = (int) (8 * d);
+        int margin = (int) (8 * d), gap = (int) (8 * d);
         int pos = PrefsGuard.getInt(prefs(), "chip_pos", 0); // 0 automatic (beside the fare when it fits), 1 always beside the distance
         for (int i = 0; i < chips.size(); i++) {
             ChipView t = chips.get(i);
             WindowManager.LayoutParams lp = (WindowManager.LayoutParams) t.getLayoutParams();
-            t.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-            int w = Math.max(t.getWidth(), t.getMeasuredWidth()), hh = Math.max(t.getHeight(), t.getMeasuredHeight());
-            int[] b = chipBase.get(i);
-            int bx = b[0], by = b[1];
-            boolean noRoom = bx + w > dm.widthPixels - margin;                         // no space to the right of the fare
-            boolean onRow = b[3] >= 0 && (pos >= 1 || noRoom);                          // the pickup-distance row is empty on its right; never sit on the fare text
-            if (onRow) {
+            int[] b = chipBase.get(i); // x, y beside the fare, fare height, distance top, distance height, fare bottom, distance right
+            int bx = b[0], by = b[1], w, hh;
+
+            int[] nat = t.naturalSize();
+            boolean besideFare = pos == 0 && bx + nat[0] <= dm.widthPixels - margin;
+            boolean hasRow = b[3] >= 0;
+            if (besideFare || !hasRow) {
+                int availW = dm.widthPixels - margin - bx;
+                if (!besideFare) t.fitTo(Math.max(availW, nat[0] / 2), 0);   // no row known: shrink to the space beside the fare
+                else t.fit = 1f;
+                w = Math.max(t.getMeasuredWidth(), 1); hh = Math.max(t.getMeasuredHeight(), 1);
+                if (!besideFare) { bx = dm.widthPixels - margin - w; by = b[1] + b[2] + (int) (4 * d); }
+            } else {
+                // the pickup-distance row: from the fare's bottom edge down to the distance row's bottom edge, right of the distance
+                int left = Math.max(b[6] + gap, dm.widthPixels / 3);
+                int availW = dm.widthPixels - margin - left;
+                int rowBottom = b[3] + b[4], maxH = rowBottom - b[5] - (int) (2 * d);
+                t.fitTo(availW, maxH);
+                w = Math.max(t.getMeasuredWidth(), 1); hh = Math.max(t.getMeasuredHeight(), 1);
                 bx = dm.widthPixels - margin - w;
-                by = hh <= b[4] ? b[3] + (b[4] - hh) / 2 : b[3] + b[4] - hh;           // taller than the row: sit on its bottom edge and grow upward, away from the address
-            } else if (noRoom) {
-                bx = dm.widthPixels - margin - w;
-                by = by + b[2] + (int) (4 * d);                                       // pickup row unknown: tuck just under the fare
+                by = hh <= b[4] ? b[3] + (b[4] - hh) / 2 : rowBottom - hh;   // taller than the row: sit on its bottom edge and grow upward, not above the fare
+                by = Math.max(by, b[5] + (int) (2 * d));
             }
             int[] off = drag.get(t.key);
             if (off != null) { bx += off[0]; by += off[1]; }
@@ -961,12 +983,144 @@ public class AcceptService extends AccessibilityService {
         return out;
     }
 
+    /** Nudges the driver to rest. ponytail: only checked while a ride card is on screen; use an alarm if that is too late. */
+    void breakReminder(SharedPreferences sp) {
+        double every = MainActivity.pref(sp, "brk_every", 0);
+        if (every <= 0 || sp.getBoolean("break_on", false)) return;
+        long first = Long.MAX_VALUE, now = System.currentTimeMillis();
+        for (MainActivity.Ride r : MainActivity.parseRides(sp)) if (r.t >= MainActivity.midnight() && r.t < first) first = r.t;
+        if (first == Long.MAX_VALUE) return;
+        long last = Math.max(first, (long) MainActivity.pref(sp, "brk_last", 0));
+        if (now - last <= every * 3600000L) return;
+        sp.edit().putString("brk_last", String.valueOf(now)).apply();
+        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(9, MainActivity.noteBuilder(this).setSmallIcon(R.drawable.ic_bolt)
+            .setContentTitle(I18n.t(sp, "Time for a break")).setContentText(MainActivity.n(every) + " h").build());
+    }
+
+    /** Looks up the pickup address with the phone's own Geocoder (free, no key) and remembers it for the pickup-areas list. */
+    void geocodePickup(final SharedPreferences sp, final String addr, final double fare) {
+        if (addr == null || addr.trim().length() < 4 || !android.location.Geocoder.isPresent()) return;
+        final android.location.Location near = lastLocation(this);
+        final int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        new Thread(() -> {
+            try {
+                android.location.Geocoder g = new android.location.Geocoder(this, Locale.getDefault());
+                List<android.location.Address> r = near == null ? g.getFromLocationName(addr, 1)
+                    : g.getFromLocationName(addr, 1, near.getLatitude() - 0.5, near.getLongitude() - 0.5, near.getLatitude() + 0.5, near.getLongitude() + 0.5);
+                if (r == null || r.isEmpty()) return;
+                double la = r.get(0).getLatitude(), lo = r.get(0).getLongitude();
+                float[] d = new float[1];
+                if (near != null) { // a match in another city is a wrong match
+                    android.location.Location.distanceBetween(near.getLatitude(), near.getLongitude(), la, lo, d);
+                    if (d[0] > 60000) return;
+                }
+                MainActivity.addZone(sp, la, lo, fare, hour, addr.split(",")[0].trim());
+            } catch (Exception e) { /* no network or no result: just no zone for this ride */ }
+        }).start();
+    }
+
+    static double awayKm = -1; // distance from the driver's base, refreshed on every analyze; -1 = unknown
+
+    /** Freshest last-known fix from any provider, or null (no permission, GPS off). */
+    static android.location.Location lastLocation(Context ctx) {
+        if (ctx.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) return null;
+        android.location.LocationManager lm = (android.location.LocationManager) ctx.getSystemService(Context.LOCATION_SERVICE);
+        android.location.Location best = null;
+        try {
+            for (String p : lm.getProviders(true)) {
+                android.location.Location l = lm.getLastKnownLocation(p);
+                if (l != null && (best == null || l.getTime() > best.getTime())) best = l;
+            }
+        } catch (Exception e) { /* provider vanished */ }
+        return best;
+    }
+
+    void refreshAway(SharedPreferences sp) {
+        awayKm = -1;
+        if (MainActivity.pref(sp, "radius", 0) <= 0 || sp.getString("base_lat", "").isEmpty()) return;
+        android.location.Location l = lastLocation(this);
+        if (l == null) return;
+        float[] out = new float[1];
+        try { android.location.Location.distanceBetween(l.getLatitude(), l.getLongitude(), Double.parseDouble(sp.getString("base_lat", "")), Double.parseDouble(sp.getString("base_lon", "")), out); }
+        catch (Exception e) { return; }
+        awayKm = out[0] / 1000.0;
+    }
+
     /** Returns a plain-language reason the ride does not meet the filters, or null if it does. */
-    static String decide(SharedPreferences sp, Double fare, Double km, Double drop) {
-        double minFare = MainActivity.pref(sp, "fare", 0);
-        if (fare < minFare)
+    static String decide(SharedPreferences sp, Double fare, Double km, Double drop, int mins, String type) {
+        if (sp.getBoolean("break_on", false)) return I18n.t(sp, "You are on a break");
+        double minFare = MainActivity.eff(sp, "fare", 0);
+        boolean orMode = sp.getBoolean("or_mode", false); // ponytail: OR covers fare vs earnings-per-km only, the pair drivers actually trade off
+        double pkMin = MainActivity.eff(sp, "perkm", 0), pkNow = MainActivity.perKm(fare, km, drop);
+        boolean pkOk = pkMin > 0 && !Double.isNaN(pkNow) && pkNow >= pkMin;
+        if (fare < minFare && !(orMode && pkOk))
             return String.format(Locale.US, I18n.t(sp, "Fare ₹%s is below your minimum of ₹%s"), MainActivity.n(fare), MainActivity.n(minFare));
-        double maxKm = MainActivity.pref(sp, "dist", 0);
+        double rejLo = MainActivity.pref(sp, "rejlo", 0), rejHi = MainActivity.pref(sp, "rejhi", 0);
+        if (rejHi > 0 && fare >= rejLo && fare <= rejHi) // ponytail: fare range only, add per-filter ranges if needed
+            return String.format(Locale.US, I18n.t(sp, "Fare ₹%s is inside your reject range of ₹%s to ₹%s"), MainActivity.n(fare), MainActivity.n(rejLo), MainActivity.n(rejHi));
+        double trip = (km == null ? 0 : km) + (drop == null ? 0 : drop);
+        double maxFare = MainActivity.pref(sp, "maxfare", 0);
+        if (maxFare > 0 && fare > maxFare)
+            return String.format(Locale.US, I18n.t(sp, "Fare ₹%s is above your maximum of ₹%s"), MainActivity.n(fare), MainActivity.n(maxFare));
+        double minTrip = MainActivity.pref(sp, "mintrip", 0), maxTrip = MainActivity.pref(sp, "maxtrip", 0);
+        if ((minTrip > 0 || maxTrip > 0) && trip == 0) return I18n.t(sp, "Distance not shown, so trip length can't be checked");
+        if (minTrip > 0 && trip < minTrip)
+            return String.format(Locale.US, I18n.t(sp, "Trip %s is shorter than your minimum of %s"), MainActivity.fmtDist(sp, trip), MainActivity.fmtDist(sp, minTrip));
+        if (maxTrip > 0 && trip > maxTrip)
+            return String.format(Locale.US, I18n.t(sp, "Trip %s is longer than your limit of %s"), MainActivity.fmtDist(sp, trip), MainActivity.fmtDist(sp, maxTrip));
+        double maxMins = MainActivity.pref(sp, "maxmins", 0);
+        if (maxMins > 0 && mins >= 0 && mins > maxMins)
+            return String.format(Locale.US, I18n.t(sp, "Ride takes %s min, longer than your limit of %s"), String.valueOf(mins), MainActivity.n(maxMins));
+        double net = fare - MainActivity.costPerKm(sp, type) * trip; // fuel only; ponytail: add maintenance per km if wanted
+        double minProfit = MainActivity.pref(sp, "minprofit", 0);
+        if (minProfit > 0 && net < minProfit)
+            return String.format(Locale.US, I18n.t(sp, "Profit ₹%s after fuel is below your minimum of ₹%s"), MainActivity.n(Math.round(net)), MainActivity.n(minProfit));
+        double minNetKm = MainActivity.pref(sp, "minnetkm", 0);
+        if (minNetKm > 0) {
+            if (trip == 0) return I18n.t(sp, "Distance not shown, so profit per km can't be checked");
+            if (net / trip < minNetKm)
+                return String.format(Locale.US, I18n.t(sp, "Profit ₹%s per km after fuel is below your minimum of ₹%s"), String.format(Locale.US, "%.1f", net / trip), MainActivity.n(minNetKm));
+        }
+        double minHr = MainActivity.pref(sp, "minhr", 0);
+        if (minHr > 0 && mins > 0 && net / (mins / 60.0) < minHr)
+            return String.format(Locale.US, I18n.t(sp, "Profit ₹%s per hour is below your minimum of ₹%s"), MainActivity.n(Math.round(net / (mins / 60.0))), MainActivity.n(minHr));
+        double dayRides = MainActivity.pref(sp, "dayrides", 0), dayKm = MainActivity.pref(sp, "daykm", 0);
+        if (dayRides > 0 || dayKm > 0) {
+            int n = 0; double kms = 0;
+            for (MainActivity.Ride r : MainActivity.parseRides(sp)) if (r.t >= MainActivity.midnight()) { n++; kms += r.km(); }
+            if (dayRides > 0 && n >= dayRides) return String.format(Locale.US, I18n.t(sp, "Daily limit of %s rides reached"), MainActivity.n(dayRides));
+            if (dayKm > 0 && kms >= dayKm) return String.format(Locale.US, I18n.t(sp, "Daily limit of %s reached"), MainActivity.fmtDist(sp, dayKm));
+        }
+        double goal = MainActivity.pref(sp, "goal", 0);
+        if (goal > 0 && sp.getBoolean("goal_stop", false)) {
+            double earned = 0;
+            for (MainActivity.Ride r : MainActivity.parseRides(sp)) if (r.t >= MainActivity.midnight()) earned += r.fare;
+            if (earned >= goal) return I18n.t(sp, "Daily goal reached, auto-accept paused");
+        }
+        String sf = sp.getString("shift_from", ""), st = sp.getString("shift_to", "");
+        if (!sf.isEmpty() && !st.isEmpty()) try {
+            int a = Integer.parseInt(sf), b = Integer.parseInt(st), hr = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+            boolean inside = a == b || (a < b ? hr >= a && hr < b : hr >= a || hr < b);
+            if (!inside) return String.format(Locale.US, I18n.t(sp, "Outside your shift hours (%s:00 to %s:00)"), sf, st);
+        } catch (Exception e) { /* bad hour typed: no shift limit */ }
+        double maxHrs = MainActivity.pref(sp, "maxhrs", 0);
+        if (maxHrs > 0) {
+            long first = Long.MAX_VALUE;
+            for (MainActivity.Ride r : MainActivity.parseRides(sp)) if (r.t >= MainActivity.midnight() && r.t < first) first = r.t;
+            if (first != Long.MAX_VALUE && System.currentTimeMillis() - first > maxHrs * 3600000L)
+                return String.format(Locale.US, I18n.t(sp, "You have worked more than %s hours today"), MainActivity.n(maxHrs));
+        }
+        double radius = MainActivity.pref(sp, "radius", 0);
+        if (radius > 0 && awayKm >= 0 && awayKm > radius) // unknown location (-1) never blocks a ride
+            return String.format(Locale.US, I18n.t(sp, "You are %s from your base, outside your %s area"), MainActivity.fmtDist(sp, awayKm), MainActivity.fmtDist(sp, radius));
+        double minScore = MainActivity.pref(sp, "minscore", 0);
+        if (minScore > 0) {
+            int sc = MainActivity.score(sp, fare, trip, type);
+            if (sc < 0) return I18n.t(sp, "Distance not shown, so the ride score can't be checked");
+            if (sc < minScore)
+                return String.format(Locale.US, I18n.t(sp, "Ride score %s is below your minimum of %s"), String.valueOf(sc), MainActivity.n(minScore));
+        }
+        double maxKm = MainActivity.eff(sp, "dist", 0);
         if (maxKm > 0) {
             if (km == null) return I18n.t(sp, "Pickup distance not shown, so it can't be checked");
             if (km > maxKm)
@@ -978,8 +1132,8 @@ public class AcceptService extends AccessibilityService {
             if (drop > maxDrop)
                 return String.format(Locale.US, I18n.t(sp, "Drop %s is farther than your limit of %s"), MainActivity.fmtDist(sp, drop), MainActivity.fmtDist(sp, maxDrop));
         }
-        double minPk = MainActivity.pref(sp, "perkm", 0);
-        if (minPk > 0) {
+        double minPk = MainActivity.eff(sp, "perkm", 0);
+        if (minPk > 0 && !(orMode && minFare > 0 && fare >= minFare)) {
             double pk = MainActivity.perKm(fare, km, drop);
             if (Double.isNaN(pk)) return I18n.t(sp, "Distance not shown, so earnings per km can't be checked");
             if (pk < minPk)

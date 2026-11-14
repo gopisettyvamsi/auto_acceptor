@@ -59,13 +59,13 @@ public class MainActivity extends Activity {
     static void applyTheme(SharedPreferences sp) {
         dark = sp.getBoolean("dark", true);
         if (dark) {
-            ACCENT = 0xFF5B8CFF; ACCENT_SOFT = 0xFF1B2A4D; BG = 0xFF0B0F17; SURFACE = 0xFF151A25; LINE = 0xFF2A3345;
-            TEXT = 0xFFF5F7FA; SUBTLE = 0xFFD2D8E4; OK = 0xFF3DD68C; WARN = 0xFFFF6B63; HERO = 0xFF1C2433;
-            INPUT_LINE = 0xFF3A4560; OK_SOFT = 0xFF173A2A; WARN_SOFT = 0xFF45201E; BAR = 0xFF2C3A5E;
+            ACCENT = 0xFF6B93FF; ACCENT_SOFT = 0xFF182446; BG = 0xFF080C16; SURFACE = 0xFF111827; LINE = 0xFF222D45;
+            TEXT = 0xFFF3F6FC; SUBTLE = 0xFFD2D8E4; OK = 0xFF3DD68C; WARN = 0xFFFF6B63; HERO = 0xFF152036;
+            INPUT_LINE = 0xFF34415F; OK_SOFT = 0xFF173A2A; WARN_SOFT = 0xFF45201E; BAR = 0xFF2C3A5E;
             THUMB_OFF = 0xFFAEB7C8; TRACK_OFF = 0xFF3A4560;
         } else {
-            ACCENT = 0xFF1F4FD8; ACCENT_SOFT = 0xFFEAF0FF; BG = 0xFFF4F5F8; SURFACE = Color.WHITE; LINE = 0xFFE6E8EE;
-            TEXT = 0xFF0B0F19; SUBTLE = 0xFF1F2937; OK = 0xFF1E8E4E; WARN = 0xFFB3261E; HERO = 0xFF101828;
+            ACCENT = 0xFF2345C9; ACCENT_SOFT = 0xFFE8EEFF; BG = 0xFFF2F4F9; SURFACE = Color.WHITE; LINE = 0xFFE3E7EF;
+            TEXT = 0xFF0B0F19; SUBTLE = 0xFF1F2937; OK = 0xFF1E8E4E; WARN = 0xFFB3261E; HERO = 0xFF0F1B3D;
             INPUT_LINE = 0xFFC4C9D2; OK_SOFT = 0xFFE3F4EA; WARN_SOFT = 0xFFFCE8E6; BAR = 0xFFC7D2F5;
             THUMB_OFF = 0xFFF2F4F7; TRACK_OFF = 0xFFD0D5DD;
         }
@@ -113,7 +113,11 @@ public class MainActivity extends Activity {
     void saveFilters(EditText[] f) {
         sp.edit().putString("fare", f[0].getText().toString())
             .putString("dist", n4(fromUi(sp, parse(f[1])))).putString("dropmax", n4(fromUi(sp, parse(f[2]))))
-            .putString("perkm", f[3].getText().toString()).apply();
+            .putString("perkm", f[3].getText().toString())
+            .putString("rejlo", f[4].getText().toString()).putString("rejhi", f[5].getText().toString())
+            .putString("maxfare", f[6].getText().toString()).putString("mintrip", n4(fromUi(sp, parse(f[7])))).putString("maxtrip", n4(fromUi(sp, parse(f[8]))))
+            .putString("maxmins", f[9].getText().toString()).putString("minprofit", f[10].getText().toString()).putString("minnetkm", f[11].getText().toString())
+            .putString("minhr", f[12].getText().toString()).putString("dayrides", f[13].getText().toString()).putString("daykm", n4(fromUi(sp, parse(f[14])))).apply();
     }
 
     /** Earnings per km over the whole trip (pickup + drop); matches the Rapido chip. NaN if unknown. */
@@ -133,7 +137,7 @@ public class MainActivity extends Activity {
     static double costPerKm(SharedPreferences sp, String type) {
         int i = Math.max(0, Arrays.asList(TYPES).indexOf(type));
         double mileage = pref(sp, "mile_" + TYPES[i], DEF_MILEAGE[i]);
-        return mileage > 0 ? pref(sp, "petrol", 105) / mileage : 0;
+        return (mileage > 0 ? pref(sp, "petrol", 105) / mileage : 0) + pref(sp, "maint", 0);
     }
 
     /** Ride type from the offer screen text; falls back to the user's own vehicle. */
@@ -161,13 +165,13 @@ public class MainActivity extends Activity {
         double perKm() { return MainActivity.perKm(fare, pickup, drop); }
     }
 
-    // history: one record per line "time|app|fare|pickup|drop|type", newest first, capped at 100
+    // history: one record per line "time|app|fare|pickup|drop|type", newest first, capped at 1000
     static void addHistory(SharedPreferences sp, String pkg, double fare, Double pickup, Double drop, String type) {
         String rec = System.currentTimeMillis() + "|" + appName(pkg) + "|" + fare + "|"
             + (pickup == null ? "" : pickup) + "|" + (drop == null ? "" : drop) + "|" + type;
         String[] old = sp.getString("hist", "").split("\n");
         StringBuilder sb = new StringBuilder(rec);
-        for (int i = 0; i < Math.min(old.length, 99); i++) if (!old[i].isEmpty()) sb.append('\n').append(old[i]);
+        for (int i = 0; i < Math.min(old.length, 999); i++) if (!old[i].isEmpty()) sb.append('\n').append(old[i]);
         sp.edit().putString("hist", sb.toString()).apply();
     }
 
@@ -193,7 +197,7 @@ public class MainActivity extends Activity {
         String rec = System.currentTimeMillis() + "|" + reason.replace('|', ' ').replace('\n', ' ') + "|" + fare;
         String[] old = sp.getString("skips", "").split("\n");
         StringBuilder sb = new StringBuilder(rec);
-        for (int i = 0; i < Math.min(old.length, 29); i++) if (!old[i].isEmpty()) sb.append('\n').append(old[i]);
+        for (int i = 0; i < Math.min(old.length, 299); i++) if (!old[i].isEmpty()) sb.append('\n').append(old[i]);
         sp.edit().putString("skips", sb.toString()).apply();
     }
 
@@ -312,6 +316,20 @@ public class MainActivity extends Activity {
         return g;
     }
 
+    /** Deep-navy to blue sweep for the big earnings cards. */
+    GradientDrawable heroShape() {
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{HERO, dark ? 0xFF22408F : 0xFF2347B8});
+        g.setCornerRadius(dp(24));
+        return g;
+    }
+
+    /** Primary buttons keep a fixed blue so white text stays readable in both themes. */
+    GradientDrawable primaryShape() {
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{0xFF3D6BFF, 0xFF2A4FD6});
+        g.setCornerRadius(dp(14));
+        return g;
+    }
+
     TextView tv(String s, int size, int color, String family) {
         TextView t = new TextView(this);
         t.setText(L(s)); t.setTextSize(size * scale()); t.setTextColor(color);
@@ -356,7 +374,8 @@ public class MainActivity extends Activity {
     LinearLayout card(ViewGroup root, int top) {
         LinearLayout c = col();
         c.setPadding(dp(16), dp(16), dp(16), dp(16));
-        c.setBackground(shape(SURFACE, 16, LINE));
+        c.setBackground(shape(SURFACE, 18, LINE));
+        if (!dark) c.setElevation(dp(2)); // dark theme relies on the outline; light gets a soft lift
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.topMargin = dp(top);
         root.addView(c, lp);
@@ -371,12 +390,18 @@ public class MainActivity extends Activity {
         root.setPadding(dp(16), dp(20), dp(16), dp(24));
         sv.addView(root);
         content.addView(sv, new FrameLayout.LayoutParams(-1, -1));
+        sv.setAlpha(0f); sv.setTranslationY(dp(10)); sv.animate().alpha(1f).translationY(0f).setDuration(180).start();
         return root;
     }
 
     /** Small caps heading with an optional action link on the right. */
     void section(LinearLayout root, String title, String action, Runnable onAction) {
         LinearLayout r = row();
+        View bar = new View(this);
+        bar.setBackground(shape(ACCENT, 2, 0));
+        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(dp(3), dp(13));
+        bl.rightMargin = dp(8);
+        r.addView(bar, bl);
         TextView t = tv(title, 12, SUBTLE, "sans-serif-medium");
         t.setText(t.getText().toString().toUpperCase());
         t.setLetterSpacing(0.08f);
@@ -430,7 +455,7 @@ public class MainActivity extends Activity {
         e.setInputType(type); e.setText(val); e.setSingleLine(true);
         e.setTextColor(TEXT); e.setTextSize(16 * scale());
         e.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-        e.setBackground(shape(SURFACE, 10, INPUT_LINE));
+        e.setBackground(shape(dark ? BG : 0xFFF8F9FC, 12, INPUT_LINE));
         e.setPadding(dp(12), 0, dp(12), 0);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(Math.round(48 * scale() * taps())));
         lp.topMargin = dp(8);
@@ -444,8 +469,10 @@ public class MainActivity extends Activity {
         b.setText(L(s)); b.setAllCaps(false); b.setTextSize(15 * scale());
         b.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
         b.setTextColor(primary ? Color.WHITE : ACCENT);
-        b.setBackground(primary ? shape(ACCENT, 12, 0) : shape(SURFACE, 12, ACCENT));
+        android.graphics.drawable.Drawable face = primary ? primaryShape() : shape(SURFACE, 14, ACCENT);
+        b.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(primary ? 0x44FFFFFF : (ACCENT & 0x00FFFFFF) | 0x33000000), face, shape(Color.WHITE, 14, 0)));
         b.setStateListAnimator(null);
+        b.setElevation(dp(primary ? 4 : 0));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(Math.round(50 * scale() * taps())));
         lp.topMargin = dp(top);
         p.addView(b, lp);
@@ -460,7 +487,7 @@ public class MainActivity extends Activity {
         Runnable paint = () -> {
             for (int i = 0; i < o.length; i++) {
                 boolean s = i == cur[0];
-                o[i].setBackground(shape(s ? ACCENT : SURFACE, 10, s ? 0 : INPUT_LINE));
+                o[i].setBackground(shape(s ? ACCENT : SURFACE, 12, s ? 0 : INPUT_LINE));
                 o[i].setTextColor(s ? Color.WHITE : TEXT);
                 o[i].setContentDescription(L(names[i]) + (s ? ", " + L("selected") : ""));
             }
@@ -674,7 +701,7 @@ public class MainActivity extends Activity {
         // hero: net profit or loss
         LinearLayout hero = col();
         hero.setPadding(dp(20), dp(18), dp(20), dp(18));
-        hero.setBackground(shape(HERO, 20, 0));
+        hero.setBackground(heroShape()); hero.setElevation(dp(6));
         hero.addView(tv(net >= 0 ? "Net profit" : "Net loss", 14, ON_HERO, "sans-serif"));
         label(hero, signed(net), 36, net >= 0 ? 0xFF4ADE80 : 0xFFF87171, "sans-serif-medium", 4);
         label(hero, L("Earnings") + " ₹" + Math.round(earn) + "  −  " + L("costs") + " ₹" + Math.round(costs), 13, ON_HERO, "sans-serif", 0);
@@ -691,6 +718,8 @@ public class MainActivity extends Activity {
         if (fixed > 0) moneyRow(b, "Fixed costs", F("Monthly costs spread over %s days", days), -fixed, false, 12);
         divider(b, 14);
         moneyRow(b, net >= 0 ? "Net profit" : "Net loss", null, net, true, 12);
+
+        insights(root);
 
         section(root, "Per ride and per km", null, null);
         LinearLayout mc = card(root, 0);
@@ -779,6 +808,7 @@ public class MainActivity extends Activity {
         for (int i = 0; i < nav.getChildCount(); i++) {
             LinearLayout item = (LinearLayout) nav.getChildAt(i);
             int c = i == t ? ACCENT : SUBTLE;
+            item.setBackground(i == t ? shape(ACCENT_SOFT, 16, 0) : null);
             ((ImageView) item.getChildAt(0)).setColorFilter(c);
             ((TextView) item.getChildAt(1)).setTextColor(c);
         }
@@ -1174,7 +1204,7 @@ public class MainActivity extends Activity {
         // ---- earnings card, with the daily goal built in
         LinearLayout hero = col();
         hero.setPadding(dp(20), dp(18), dp(20), dp(18));
-        hero.setBackground(shape(HERO, 20, 0));
+        hero.setBackground(heroShape()); hero.setElevation(dp(6));
         LinearLayout top = row();
         top.addView(tv("Today's earnings", 14, ON_HERO, "sans-serif"), weight());
         TextView date = tv(new SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(new Date()), 12, ON_HERO, "sans-serif");
@@ -1297,7 +1327,7 @@ public class MainActivity extends Activity {
             LinearLayout c = card(root, 0);
             SimpleDateFormat f = new SimpleDateFormat("d MMM, h:mm a", Locale.getDefault());
             String[] lines = sk.split("\n");
-            for (int i = 0; i < Math.min(5, lines.length); i++) {
+            for (int i = 0; i < Math.min(20, lines.length); i++) {
                 String[] r = lines[i].split("\\|", 3);
                 if (r.length < 3) continue;
                 if (i > 0) divider(c, 10);
@@ -1319,11 +1349,65 @@ public class MainActivity extends Activity {
 
     // ---------- settings: a short menu, each group on its own one-screen page ----------
     static final String[] SECTIONS = {"Ride filters", "Go To & Stay In", "Accept speed", "Earnings targets", "Vehicle & fuel", "Mileage",
-        "Goals & alerts", "Display & language", "Driver apps", "Chip style", "Accessibility", "Help & guide"};
+        "Goals & alerts", "Display & language", "Driver apps", "Chip style", "Accessibility", "Help & guide", "Time profiles", "Shift & safety", "Backup & profiles"};
     static final int[] SECTION_ICONS = {R.drawable.ic_tune, R.drawable.ic_place, R.drawable.ic_bolt, R.drawable.ic_trending_up, R.drawable.ic_car,
         R.drawable.ic_wallet, R.drawable.ic_notifications, R.drawable.ic_settings, R.drawable.ic_check_circle,
-        R.drawable.ic_palette, R.drawable.ic_accessibility, R.drawable.ic_help};
+        R.drawable.ic_palette, R.drawable.ic_accessibility, R.drawable.ic_help,
+        R.drawable.ic_history, R.drawable.ic_check_circle, R.drawable.ic_settings};
     static {
+        // v2 filters, profiles, breaks
+        I18n.a("Best pickup areas", "सबसे अच्छे पिकअप क्षेत्र", "ఉత్తమ పికప్ ప్రాంతాలు");
+        I18n.a("Busy around this hour", "इस घंटे के आसपास व्यस्त", "ఈ గంట చుట్టూ రద్దీ");
+        I18n.a("avg", "औसत", "సగటు");
+        I18n.a("Time profiles", "समय प्रोफ़ाइल", "సమయ ప్రొఫైల్‌లు");
+        I18n.a("Shift & safety", "शिफ्ट और सुरक्षा", "షిఫ్ట్ & భద్రత");
+        I18n.a("Backup & profiles", "बैकअप और प्रोफ़ाइल", "బ్యాకప్ & ప్రొఫైల్‌లు");
+        I18n.a("Insights", "अंतर्दृष्टि", "అంతర్దృష్టులు");
+        I18n.a("Expected today", "आज अपेक्षित", "ఈ రోజు అంచనా");
+        I18n.a("Expected this week", "इस सप्ताह अपेक्षित", "ఈ వారం అంచనా");
+        I18n.a("Best hours", "सबसे अच्छे घंटे", "ఉత్తమ గంటలు");
+        I18n.a("Break time today", "आज का ब्रेक समय", "ఈ రోజు విరామ సమయం");
+        I18n.a("auto-accept is paused", "ऑटो-स्वीकार रुका है", "ఆటో-అంగీకారం ఆగింది");
+        I18n.a("Start break", "ब्रेक शुरू करें", "విరామం మొదలుపెట్టండి");
+        I18n.a("End break", "ब्रेक खत्म करें", "విరామం ముగించండి");
+        I18n.a("Time for a break", "ब्रेक का समय", "విరామ సమయం");
+        I18n.a("Maximum fare (₹)", "अधिकतम किराया (₹)", "గరిష్ట ఛార్జీ (₹)");
+        I18n.a("Reject fares from (₹)", "इस किराए से अस्वीकार (₹)", "ఈ ఛార్జీ నుండి తిరస్కరించు (₹)");
+        I18n.a("Reject fares up to (₹)", "इस किराए तक अस्वीकार (₹)", "ఈ ఛార్జీ వరకు తిరస్కరించు (₹)");
+        I18n.a("Maximum ride time (minutes)", "अधिकतम राइड समय (मिनट)", "గరిష్ట రైడ్ సమయం (నిమిషాలు)");
+        I18n.a("Minimum profit per ride (₹)", "प्रति राइड न्यूनतम मुनाफ़ा (₹)", "రైడ్‌కు కనీస లాభం (₹)");
+        I18n.a("Minimum profit per km (₹)", "प्रति किमी न्यूनतम मुनाफ़ा (₹)", "కిమీకి కనీస లాభం (₹)");
+        I18n.a("Minimum profit per hour (₹)", "प्रति घंटा न्यूनतम मुनाफ़ा (₹)", "గంటకు కనీస లాభం (₹)");
+        I18n.a("Daily ride limit", "दैनिक राइड सीमा", "రోజువారీ రైడ్ పరిమితి");
+        I18n.a("Running cost per km (₹)", "प्रति किमी चलाने की लागत (₹)", "కిమీకి నడిపే ఖర్చు (₹)");
+        I18n.a("Minimum ride score (0-100)", "न्यूनतम राइड स्कोर (0-100)", "కనీస రైడ్ స్కోరు (0-100)");
+        I18n.a("Pause after each accept (seconds)", "हर स्वीकार के बाद रुकें (सेकंड)", "ప్రతి అంగీకారం తర్వాత విరామం (సెకన్లు)");
+        I18n.a("Daily working hours limit", "दैनिक काम के घंटों की सीमा", "రోజువారీ పని గంటల పరిమితి");
+        I18n.a("Minimum trip distance, pickup + drop (%s)", "न्यूनतम यात्रा दूरी, पिकअप + ड्रॉप (%s)", "కనీస ట్రిప్ దూరం, పికప్ + డ్రాప్ (%s)");
+        I18n.a("Maximum trip distance, pickup + drop (%s)", "अधिकतम यात्रा दूरी, पिकअप + ड्रॉप (%s)", "గరిష్ట ట్రిప్ దూరం, పికప్ + డ్రాప్ (%s)");
+        I18n.a("Daily distance limit (%s)", "दैनिक दूरी सीमा (%s)", "రోజువారీ దూర పరిమితి (%s)");
+        I18n.a("Stay within (%s) of my base", "मेरे बेस से (%s) के भीतर रहें", "నా బేస్ నుండి (%s) లోపల ఉండండి");
+        I18n.a("Fare ₹%s is inside your reject range of ₹%s to ₹%s", "किराया ₹%s आपकी अस्वीकार सीमा ₹%s से ₹%s के भीतर है", "ఛార్జీ ₹%s మీ తిరస్కరణ పరిధి ₹%s నుండి ₹%s లోపల ఉంది");
+        I18n.a("Fare ₹%s is above your maximum of ₹%s", "किराया ₹%s आपके अधिकतम ₹%s से ऊपर है", "ఛార్జీ ₹%s మీ గరిష్ట ₹%s కంటే ఎక్కువ");
+        I18n.a("Distance not shown, so trip length can't be checked", "दूरी नहीं दिखी, इसलिए यात्रा की लंबाई जाँच नहीं सकते", "దూరం కనిపించలేదు, కాబట్టి ట్రిప్ పొడవును తనిఖీ చేయలేము");
+        I18n.a("Trip %s is shorter than your minimum of %s", "यात्रा %s आपके न्यूनतम %s से छोटी है", "ట్రిప్ %s మీ కనీస %s కంటే తక్కువ");
+        I18n.a("Trip %s is longer than your limit of %s", "यात्रा %s आपकी सीमा %s से लंबी है", "ట్రిప్ %s మీ పరిమితి %s కంటే ఎక్కువ");
+        I18n.a("Ride takes %s min, longer than your limit of %s", "राइड में %s मिनट लगेंगे, आपकी सीमा %s से अधिक", "రైడ్‌కు %s నిమిషాలు, మీ పరిమితి %s కంటే ఎక్కువ");
+        I18n.a("Profit ₹%s after fuel is below your minimum of ₹%s", "ईंधन के बाद मुनाफ़ा ₹%s आपके न्यूनतम ₹%s से कम है", "ఇంధనం తర్వాత లాభం ₹%s మీ కనీస ₹%s కంటే తక్కువ");
+        I18n.a("Distance not shown, so profit per km can't be checked", "दूरी नहीं दिखी, इसलिए प्रति किमी मुनाफ़ा जाँच नहीं सकते", "దూరం కనిపించలేదు, కాబట్టి కిమీకి లాభాన్ని తనిఖీ చేయలేము");
+        I18n.a("Profit ₹%s per km after fuel is below your minimum of ₹%s", "ईंधन के बाद प्रति किमी मुनाफ़ा ₹%s आपके न्यूनतम ₹%s से कम है", "ఇంధనం తర్వాత కిమీకి లాభం ₹%s మీ కనీస ₹%s కంటే తక్కువ");
+        I18n.a("Profit ₹%s per hour is below your minimum of ₹%s", "प्रति घंटा मुनाफ़ा ₹%s आपके न्यूनतम ₹%s से कम है", "గంటకు లాభం ₹%s మీ కనీస ₹%s కంటే తక్కువ");
+        I18n.a("Daily limit of %s rides reached", "%s राइड की दैनिक सीमा पूरी हुई", "%s రైడ్‌ల రోజువారీ పరిమితి చేరింది");
+        I18n.a("Daily limit of %s reached", "%s की दैनिक सीमा पूरी हुई", "%s రోజువారీ పరిమితి చేరింది");
+        I18n.a("Daily goal reached, auto-accept paused", "दैनिक लक्ष्य पूरा, ऑटो-स्वीकार रुका", "రోజువారీ లక్ష్యం చేరింది, ఆటో-అంగీకారం ఆగింది");
+        I18n.a("Outside your shift hours (%s:00 to %s:00)", "आपके शिफ्ट समय (%s:00 से %s:00) के बाहर", "మీ షిఫ్ట్ సమయం (%s:00 నుండి %s:00) వెలుపల");
+        I18n.a("You have worked more than %s hours today", "आपने आज %s घंटे से अधिक काम किया है", "మీరు ఈ రోజు %s గంటల కంటే ఎక్కువ పని చేశారు");
+        I18n.a("You are %s from your base, outside your %s area", "आप बेस से %s दूर हैं, आपके %s क्षेत्र के बाहर", "మీరు బేస్ నుండి %s దూరంలో ఉన్నారు, మీ %s ప్రాంతం వెలుపల");
+        I18n.a("Distance not shown, so the ride score can't be checked", "दूरी नहीं दिखी, इसलिए राइड स्कोर जाँच नहीं सकते", "దూరం కనిపించలేదు, కాబట్టి రైడ్ స్కోరును తనిఖీ చేయలేము");
+        I18n.a("Ride score %s is below your minimum of %s", "राइड स्कोर %s आपके न्यूनतम %s से कम है", "రైడ్ స్కోరు %s మీ కనీస %s కంటే తక్కువ");
+        I18n.a("You are on a break", "आप ब्रेक पर हैं", "మీరు విరామంలో ఉన్నారు");
+        I18n.a("Declined: rated Low", "अस्वीकार: कम रेटिंग", "తిరస్కరించబడింది: తక్కువ రేటింగ్");
+        I18n.a("Score", "स्कोर", "స్కోరు");
         I18n.a("Accept speed", "स्वीकार की गति", "అంగీకార వేగం");
         I18n.a("Mileage", "माइलेज", "మైలేజ్");
         I18n.a("No goal", "कोई लक्ष्य नहीं", "లక్ష్యం లేదు");
@@ -1354,7 +1438,7 @@ public class MainActivity extends Activity {
         I18n.a("Off", "बंद", "ఆఫ్");
     }
 
-    static final int[] ORDER = {0, 1, 2, 3, 9, 4, 5, 6, 10, 7, 8, 11}; // menu order; the numbers are the page ids
+    static final int[] ORDER = {0, 1, 2, 3, 12, 9, 4, 5, 6, 13, 10, 7, 14, 8, 11}; // menu order; the numbers are the page ids
 
     Bitmap logoBitmap() {
         try (java.io.InputStream in = getAssets().open("logo.png")) { return android.graphics.BitmapFactory.decodeStream(in); }
@@ -1419,12 +1503,220 @@ public class MainActivity extends Activity {
             case 6: return pref(sp, "goal", 0) > 0 ? "₹" + n(pref(sp, "goal", 0)) + " / " + L("Daily goal").toLowerCase() : L("No goal");
             case 7: return LANG_NAMES[Math.max(0, Arrays.asList(LANGS).indexOf(sp.getString("lang", "en")))];
             case 9: case 10: case 11: return sectionSummaryExtra(i);
+            case 12: { int n = 0; for (String sl : SLOTS) for (String k : new String[]{"fare", "dist", "perkm"}) if (!sp.getString("tp_" + sl + "_" + k, "").isEmpty()) { n++; break; } return n == 0 ? L("Off") : n + " " + L("active"); }
+            case 13: return !sp.getString("shift_from", "").isEmpty() ? sp.getString("shift_from", "") + ":00 - " + sp.getString("shift_to", "") + ":00" : L("No shift set");
+            case 14: return L("Save, restore, share");
             default: {
                 List<String> on = new ArrayList<>();
                 for (String[] a : APPS) if (sp.getString("pkgs", DEFAULT_PKGS).contains(a[1].split(",")[0])) on.add(a[0]);
                 return android.text.TextUtils.join(", ", on);
             }
         }
+    }
+
+    // ---------- time profiles: Weekend > Night (22-5) > Peak (7-10, 17-21) > normal; a blank field falls back to the base filter ----------
+    static final String[] SLOTS = {"peak", "night", "weekend"}, SLOT_NAMES = {"Peak hours (7-10 AM, 5-9 PM)", "Night (10 PM - 5 AM)", "Weekend"};
+    static String slot() { // ponytail: fixed hours, make them editable if drivers ask
+        Calendar c = Calendar.getInstance();
+        int d = c.get(Calendar.DAY_OF_WEEK), h = c.get(Calendar.HOUR_OF_DAY);
+        if (d == Calendar.SATURDAY || d == Calendar.SUNDAY) return "weekend";
+        if (h >= 22 || h < 5) return "night";
+        if ((h >= 7 && h < 10) || (h >= 17 && h < 21)) return "peak";
+        return "";
+    }
+    /** A filter value for right now: the current time profile's override if set, else the base value. */
+    static double eff(SharedPreferences sp, String k, double def) {
+        String sl = slot();
+        if (!sl.isEmpty()) try { String v = sp.getString("tp_" + sl + "_" + k, ""); if (!v.isEmpty()) return Double.parseDouble(v); } catch (Exception e) { /* use base */ }
+        return pref(sp, k, def);
+    }
+
+    /** 0-100: profit per km after fuel against twice the driver's own target (so the target itself scores 50). -1 if no distance. */
+    static int score(SharedPreferences sp, double fare, double trip, String type) {
+        if (trip <= 0) return -1;
+        double net = (fare - costPerKm(sp, type) * trip) / trip, t = targetFor(sp, type);
+        return (int) Math.max(0, Math.min(100, t > 0 ? 100 * net / (2 * t) : 0));
+    }
+
+    // ---------- backup and profiles ----------
+    static final String[] FKEYS = {"fare", "dist", "dropmax", "perkm", "rejlo", "rejhi", "maxfare", "mintrip", "maxtrip", "maxmins",
+        "minprofit", "minnetkm", "minhr", "dayrides", "daykm", "near", "delay"};
+
+    String backupText() {
+        org.json.JSONObject o = new org.json.JSONObject();
+        try { for (Map.Entry<String, ?> e : sp.getAll().entrySet()) if (!e.getKey().equals("dump")) o.put(e.getKey(), e.getValue()); }
+        catch (Exception ex) { /* skip */ }
+        return o.toString();
+    }
+
+    /** null on success, else an error message. */
+    String restoreBackup(String txt) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(txt.trim());
+            SharedPreferences.Editor ed = sp.edit();
+            for (java.util.Iterator<String> it = o.keys(); it.hasNext(); ) {
+                String k = it.next(); Object v = o.get(k);
+                if (v instanceof Boolean) ed.putBoolean(k, (Boolean) v);
+                else if (v instanceof Integer) ed.putInt(k, (Integer) v);
+                else if (v instanceof Long) ed.putLong(k, (Long) v);
+                else ed.putString(k, String.valueOf(v));
+            }
+            ed.apply();
+            return null;
+        } catch (Exception e) { return "That is not a valid backup."; }
+    }
+
+    void saveProfile(int n) {
+        StringBuilder sb = new StringBuilder();
+        for (String k : FKEYS) sb.append(k).append('=').append(sp.getString(k, "0")).append(';');
+        sp.edit().putString("prof_" + n, sb.toString()).apply();
+    }
+
+    boolean loadProfile(int n) {
+        String v = sp.getString("prof_" + n, "");
+        if (v.isEmpty()) return false;
+        SharedPreferences.Editor ed = sp.edit();
+        for (String kv : v.split(";")) { int i = kv.indexOf('='); if (i > 0) ed.putString(kv.substring(0, i), kv.substring(i + 1)); }
+        ed.apply();
+        return true;
+    }
+
+    static String hash(String v) {
+        try {
+            StringBuilder sb = new StringBuilder();
+            for (byte b : java.security.MessageDigest.getInstance("SHA-256").digest(v.getBytes("UTF-8"))) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) { return v; }
+    }
+
+    // ---------- breaks ----------
+    void toggleBreak() {
+        long now = System.currentTimeMillis();
+        SharedPreferences.Editor ed = sp.edit();
+        if (sp.getBoolean("break_on", false)) {
+            long day = midnight(), total = (long) pref(sp, "brk_day", 0) == day ? (long) pref(sp, "brk_ms", 0) : 0;
+            ed.putBoolean("break_on", false).putString("brk_day", String.valueOf(day))
+                .putString("brk_ms", String.valueOf(total + now - (long) pref(sp, "break_since", now))).putString("brk_last", String.valueOf(now));
+        } else ed.putBoolean("break_on", true).putString("break_since", String.valueOf(now));
+        ed.apply();
+    }
+
+    long breakMinutesToday() {
+        long now = System.currentTimeMillis(), t = (long) pref(sp, "brk_day", 0) == midnight() ? (long) pref(sp, "brk_ms", 0) : 0;
+        if (sp.getBoolean("break_on", false)) t += now - (long) pref(sp, "break_since", now);
+        return t / 60000;
+    }
+
+    // ---------- pickup areas: "lat|lon|fare|hour|name" per accepted ride, newest first, capped at 1000 ----------
+    static synchronized void addZone(SharedPreferences sp, double lat, double lon, double fare, int hour, String name) {
+        String rec = lat + "|" + lon + "|" + fare + "|" + hour + "|" + name.replace('|', ' ').replace('\n', ' ');
+        String[] old = sp.getString("zones", "").split("\n");
+        StringBuilder sb = new StringBuilder(rec);
+        for (int i = 0; i < Math.min(old.length, 999); i++) if (!old[i].isEmpty()) sb.append('\n').append(old[i]);
+        sp.edit().putString("zones", sb.toString()).apply();
+    }
+
+    /** Groups stored pickups into ~1 km cells; top 3 by total fare, optionally only rides from this hour +/- 1. */
+    void zoneRows(LinearLayout c, boolean nowOnly) {
+        int hr = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        Map<String, double[]> cells = new LinkedHashMap<>(); // count, total fare, lat sum, lon sum
+        Map<String, String> names = new LinkedHashMap<>();
+        for (String row : sp.getString("zones", "").split("\n")) {
+            String[] r = row.split("\\|", 5);
+            if (r.length < 5) continue;
+            try {
+                double la = Double.parseDouble(r[0]), lo = Double.parseDouble(r[1]), f = Double.parseDouble(r[2]);
+                int h = Integer.parseInt(r[3]);
+                if (nowOnly && Math.min(Math.abs(h - hr), 24 - Math.abs(h - hr)) > 1) continue;
+                String k = Math.round(la * 100) + "," + Math.round(lo * 100);
+                double[] a = cells.get(k);
+                if (a == null) { a = new double[4]; cells.put(k, a); names.put(k, r[4]); }
+                a[0]++; a[1] += f; a[2] += la; a[3] += lo;
+            } catch (Exception e) { /* skip bad record */ }
+        }
+        List<Map.Entry<String, double[]>> top = new ArrayList<>(cells.entrySet());
+        java.util.Collections.sort(top, (x, y) -> Double.compare(y.getValue()[1], x.getValue()[1]));
+        if (top.isEmpty()) { label(c, nowOnly ? "No pickups around this hour yet." : "No pickup areas yet. They fill in as rides are accepted.", 13, SUBTLE, "sans-serif", 6); return; }
+        for (int i = 0; i < Math.min(3, top.size()); i++) {
+            double[] a = top.get(i).getValue();
+            final double la = a[2] / a[0], lo = a[3] / a[0];
+            final String nm = names.get(top.get(i).getKey());
+            TextView t = label(c, nm + "  ·  " + (int) a[0] + " " + L("rides") + "  ·  ₹" + Math.round(a[1] / a[0]) + " " + L("avg"), 14, ACCENT, "sans-serif-medium", 8);
+            t.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("geo:" + la + "," + lo + "?q=" + la + "," + lo + "(" + android.net.Uri.encode(nm) + ")"))));
+        }
+    }
+
+    // ---------- insights: simple averages over the stored rides (an estimate, not a model) ----------
+    void insights(LinearLayout root) {
+        section(root, "Insights", null, null);
+        LinearLayout c = card(root, 16);
+        Map<Long, Double> perDay = new java.util.TreeMap<>();
+        double[] hourFare = new double[24];
+        Calendar cal = Calendar.getInstance();
+        long today = midnight();
+        for (Ride x : parseRides(sp)) {
+            cal.setTimeInMillis(x.t);
+            cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0);
+            long d = cal.getTimeInMillis();
+            perDay.put(d, (perDay.containsKey(d) ? perDay.get(d) : 0) + x.fare);
+            cal.setTimeInMillis(x.t);
+            hourFare[cal.get(Calendar.HOUR_OF_DAY)] += x.fare;
+        }
+        label(c, "Best pickup areas", 14, TEXT, "sans-serif-medium", 0);
+        zoneRows(c, false);
+        label(c, "Busy around this hour", 14, TEXT, "sans-serif-medium", 14);
+        zoneRows(c, true);
+        label(c, "Tap an area to open it in Maps. Areas come from the pickups of rides you accepted.", 12, SUBTLE, "sans-serif", 8);
+        divider(c, 12);
+        if (perDay.size() < 3) { label(c, "Not enough rides yet. Insights appear after 3 days of rides.", 13, SUBTLE, "sans-serif", 0); return; }
+        double all = 0; int same = 0; double sameSum = 0;
+        int dow = Calendar.getInstance().get(Calendar.DAY_OF_WEEK);
+        for (Map.Entry<Long, Double> e : perDay.entrySet()) {
+            if (e.getKey() == today) continue;
+            all += e.getValue();
+            cal.setTimeInMillis(e.getKey());
+            if (cal.get(Calendar.DAY_OF_WEEK) == dow) { same++; sameSum += e.getValue(); }
+        }
+        int past = perDay.containsKey(today) ? perDay.size() - 1 : perDay.size();
+        if (past > 0) {
+            double daily = same >= 2 ? sameSum / same : all / past;
+            label(c, L("Expected today") + ": ₹" + Math.round(daily), 15, TEXT, "sans-serif-medium", 0);
+            label(c, L("Expected this week") + ": ₹" + Math.round(all / past * 7), 14, TEXT, "sans-serif", 6);
+        }
+        Integer[] hs = new Integer[24];
+        for (int i = 0; i < 24; i++) hs[i] = i;
+        Arrays.sort(hs, (a, b) -> Double.compare(hourFare[b], hourFare[a]));
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 3 && hourFare[hs[i]] > 0; i++) {
+            int h = hs[i];
+            sb.append(i > 0 ? "  ·  " : "").append(h % 12 == 0 ? 12 : h % 12).append(h < 12 ? " AM" : " PM");
+        }
+        label(c, L("Best hours") + ": " + sb, 14, TEXT, "sans-serif", 6);
+        label(c, "Estimate from your past rides.", 12, SUBTLE, "sans-serif", 6);
+    }
+
+    static boolean unlocked = false;
+    void askPin() {
+        final String pin = sp.getString("pin", "");
+        if (pin.isEmpty() || unlocked) return;
+        final EditText e = new EditText(this);
+        e.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        new AlertDialog.Builder(this).setTitle(L("Enter your PIN")).setView(e).setCancelable(false)
+            .setPositiveButton(L("Unlock"), (d, w) -> { if (hash(e.getText().toString()).equals(pin) || e.getText().toString().equals(pin)) unlocked = true; else askPin(); })
+            .setNegativeButton(L("Exit"), (d, w) -> finish()).show();
+    }
+    @Override protected void onStop() { super.onStop(); unlocked = false; }
+
+    void setBaseHere() {
+        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION}, 1);
+            Toast.makeText(this, L("Allow location, then tap again"), Toast.LENGTH_LONG).show();
+            return;
+        }
+        android.location.Location l = AcceptService.lastLocation(this);
+        if (l == null) { Toast.makeText(this, L("No location yet. Turn on GPS and try again."), Toast.LENGTH_LONG).show(); return; }
+        sp.edit().putString("base_lat", String.valueOf(l.getLatitude())).putString("base_lon", String.valueOf(l.getLongitude())).apply();
+        Toast.makeText(this, L("Base saved"), Toast.LENGTH_SHORT).show();
     }
 
     void settingsMenu() {
@@ -1472,7 +1764,7 @@ public class MainActivity extends Activity {
 
         switch (i) {
             case 0: {
-                final EditText[] f = new EditText[4]; // fare, pickup limit, drop limit, earnings per km
+                final EditText[] f = new EditText[15]; // fare, pickup limit, drop limit, earnings per km, reject fare from, reject fare to
                 label(c, "Distance unit", 14, TEXT, "sans-serif-medium", 0);
                 segmented(c, new String[]{"Kilometers", "Meters"}, meters(sp) ? 1 : 0, 8, k -> {
                     saveFilters(f); // keep what was typed (in the unit shown until now), then redraw with values converted
@@ -1483,7 +1775,23 @@ public class MainActivity extends Activity {
                 f[1] = field(c, F("Maximum pickup distance (%s)", unitName(sp)), "Rides with a farther pickup are skipped. Use 0 for no limit.", n2(toUi(sp, pref(sp, "dist", 0))), num, 16);
                 f[2] = field(c, F("Maximum drop distance (%s)", unitName(sp)), "Rides that go farther than this are skipped. Use 0 for no limit.", n2(toUi(sp, pref(sp, "dropmax", 0))), num, 16);
                 f[3] = field(c, "Minimum earnings per km (₹)", "Skips rides that pay less per km. Use 0 for no limit.", sp.getString("perkm", "0"), num, 16);
-                save[0] = () -> saveFilters(f);
+                f[4] = field(c, "Reject fares from (₹)", "Rides with a fare inside this range are skipped. Needs both values; use 0 for no range.", sp.getString("rejlo", "0"), num, 16);
+                f[5] = field(c, "Reject fares up to (₹)", "Upper end of the reject range, for example 60 to 80.", sp.getString("rejhi", "0"), num, 16);
+                f[6] = field(c, "Maximum fare (₹)", "Rides above this fare are skipped. Use 0 for no limit.", sp.getString("maxfare", "0"), num, 16);
+                f[7] = field(c, F("Minimum trip distance, pickup + drop (%s)", unitName(sp)), "Skips short rides. Use 0 for no limit.", n2(toUi(sp, pref(sp, "mintrip", 0))), num, 16);
+                f[8] = field(c, F("Maximum trip distance, pickup + drop (%s)", unitName(sp)), "Skips long rides. Use 0 for no limit.", n2(toUi(sp, pref(sp, "maxtrip", 0))), num, 16);
+                f[9] = field(c, "Maximum ride time (minutes)", "Skips rides the app says take longer. Use 0 for no limit.", sp.getString("maxmins", "0"), num, 16);
+                f[10] = field(c, "Minimum profit per ride (₹)", "Fare minus fuel. Uses your petrol price and mileage. Use 0 for no limit.", sp.getString("minprofit", "0"), num, 16);
+                f[11] = field(c, "Minimum profit per km (₹)", "Fare minus fuel, per km of pickup + drop. Use 0 for no limit.", sp.getString("minnetkm", "0"), num, 16);
+                f[12] = field(c, "Minimum profit per hour (₹)", "Fare minus fuel, over the ride time. Use 0 for no limit.", sp.getString("minhr", "0"), num, 16);
+                f[13] = field(c, "Daily ride limit", "Stops accepting after this many rides today. Use 0 for no limit.", sp.getString("dayrides", "0"), num, 16);
+                f[14] = field(c, F("Daily distance limit (%s)", unitName(sp)), "Stops accepting after this much pickup + drop today. Use 0 for no limit.", n2(toUi(sp, pref(sp, "daykm", 0))), num, 16);
+                CheckBox goalStop = check("Pause auto-accept when the daily goal is reached", sp.getBoolean("goal_stop", false));
+                c.addView(goalStop);
+                CheckBox orMode = check("Accept if the minimum fare OR the minimum earnings per km is met", sp.getBoolean("or_mode", false));
+                c.addView(orMode);
+                label(c, "Off means both must be met. All other filters always apply.", 13, SUBTLE, "sans-serif", 0);
+                save[0] = () -> { saveFilters(f); sp.edit().putBoolean("goal_stop", goalStop.isChecked()).putBoolean("or_mode", orMode.isChecked()).apply(); };
                 break;
             }
             case 1: {
@@ -1536,8 +1844,9 @@ public class MainActivity extends Activity {
                 label(c, "Used when the ride type isn't shown on the request.", 13, SUBTLE, "sans-serif", 4);
                 EditText petrol = field(c, "Fuel price (₹ per litre)", "Current fuel price in your city.", sp.getString("petrol", "105"), num, 16);
                 EditText fixed = field(c, "Monthly fixed costs (₹)", "EMI, insurance, phone plan. Spread evenly across the days in Money.", sp.getString("fixed", "0"), num, 16);
+                EditText maint = field(c, "Running cost per km (₹)", "Maintenance, tyres, oil, wear. Added to fuel in every profit figure. Use 0 to ignore.", sp.getString("maint", "0"), num, 16);
                 save[0] = () -> sp.edit().putString("vehicle", veh[0]).putString("petrol", petrol.getText().toString())
-                    .putString("fixed", fixed.getText().toString()).apply();
+                    .putString("fixed", fixed.getText().toString()).putString("maint", maint.getText().toString()).apply();
                 break;
             }
             case 5: {
@@ -1690,6 +1999,80 @@ public class MainActivity extends Activity {
                 save[0] = () -> { };
                 break;
             }
+            case 12: {
+                label(c, "Leave a box empty to use the normal filter. Distances are in " + unitName(sp) + ".", 13, SUBTLE, "sans-serif", 0);
+                final EditText[][] tf = new EditText[3][3];
+                final String[] pk = {"fare", "dist", "perkm"};
+                final String[] names = {"Minimum fare (₹)", "Maximum pickup distance", "Minimum earnings per km (₹)"};
+                for (int sI = 0; sI < 3; sI++) {
+                    label(c, SLOT_NAMES[sI], 14, TEXT, "sans-serif-medium", 16);
+                    for (int kI = 0; kI < 3; kI++) {
+                        String raw = sp.getString("tp_" + SLOTS[sI] + "_" + pk[kI], "");
+                        if (kI == 1 && !raw.isEmpty()) raw = n2(toUi(sp, Double.parseDouble(raw)));
+                        tf[sI][kI] = field(c, names[kI], "", raw, num, 8);
+                    }
+                }
+                save[0] = () -> {
+                    SharedPreferences.Editor ed = sp.edit();
+                    for (int sI = 0; sI < 3; sI++) for (int kI = 0; kI < 3; kI++) {
+                        String v = tf[sI][kI].getText().toString().trim();
+                        if (kI == 1 && !v.isEmpty()) v = n4(fromUi(sp, parse(tf[sI][kI])));
+                        ed.putString("tp_" + SLOTS[sI] + "_" + pk[kI], v);
+                    }
+                    ed.apply();
+                };
+                break;
+            }
+            case 13: {
+                EditText from = field(c, "Shift starts at (hour, 0-23)", "Auto-accept only runs between the start and end hours. Leave both empty for all day.", sp.getString("shift_from", ""), num, 0);
+                EditText to = field(c, "Shift ends at (hour, 0-23)", "", sp.getString("shift_to", ""), num, 8);
+                EditText hrs = field(c, "Daily working hours limit", "Stops accepting this many hours after your first ride today. Use 0 for no limit.", sp.getString("maxhrs", "0"), num, 16);
+                EditText cool = field(c, "Pause after each accept (seconds)", "Prevents accepting two rides at once. Default 4.", sp.getString("cool", "4"), num, 16);
+                EditText rad = field(c, F("Stay within (%s) of my base", unitName(sp)), "Skips rides when your phone is farther than this from your base. Use 0 for no limit.", n2(toUi(sp, pref(sp, "radius", 0))), num, 16);
+                button(c, sp.getString("base_lat", "").isEmpty() ? "Set my base to where I am now" : "Update my base to where I am now", false, 8).setOnClickListener(v -> setBaseHere());
+                EditText score = field(c, "Minimum ride score (0-100)", "Score compares profit per km with your target; the target itself scores 50. Use 0 for no limit.", sp.getString("minscore", "0"), num, 16);
+                EditText pin = field(c, "New app PIN (digits)", sp.getString("pin", "").isEmpty() ? "Asks for this PIN when the app opens." : "A PIN is set. Leave empty to keep it.", "", num, 16);
+                if (!sp.getString("pin", "").isEmpty()) button(c, "Remove PIN", false, 8).setOnClickListener(v -> { sp.edit().remove("pin").apply(); settingsSection(13); });
+                EditText brkEvery = field(c, "Remind me to take a break every (hours)", "Reminds you after this many hours of work without a break. Use 0 for none.", sp.getString("brk_every", "0"), num, 16);
+                button(c, sp.getBoolean("break_on", false) ? "End break" : "Start break", false, 8).setOnClickListener(v -> { toggleBreak(); settingsSection(13); });
+                label(c, L("Break time today") + ": " + breakMinutesToday() + " " + L("min") + (sp.getBoolean("break_on", false) ? "  ·  " + L("auto-accept is paused") : ""), 13, SUBTLE, "sans-serif", 6);
+                save[0] = () -> sp.edit().putString("shift_from", from.getText().toString().trim()).putString("shift_to", to.getText().toString().trim())
+                    .putString("maxhrs", hrs.getText().toString()).putString("cool", cool.getText().toString())
+                    .putString("radius", n4(fromUi(sp, parse(rad)))).putString("minscore", score.getText().toString())
+                    .putString("brk_every", brkEvery.getText().toString())
+                    .putString("pin", pin.getText().toString().trim().isEmpty() ? sp.getString("pin", "") : hash(pin.getText().toString().trim())).apply();
+                break;
+            }
+            case 14: {
+                label(c, "Filter profiles", 14, TEXT, "sans-serif-medium", 0);
+                label(c, "Save your current filters, then switch between them in one tap.", 13, SUBTLE, "sans-serif", 4);
+                for (int pn = 1; pn <= 3; pn++) {
+                    final int n = pn;
+                    LinearLayout r = row();
+                    Button sv = button(r, "Save " + n, false, 8), ld = button(r, sp.getString("prof_" + n, "").isEmpty() ? "Empty" : "Load " + n, false, 8);
+                    sv.setOnClickListener(v -> { saveProfile(n); Toast.makeText(this, L("Saved"), Toast.LENGTH_SHORT).show(); settingsSection(14); });
+                    ld.setOnClickListener(v -> { if (loadProfile(n)) Toast.makeText(this, L("Loaded"), Toast.LENGTH_SHORT).show(); });
+                    c.addView(r, new LinearLayout.LayoutParams(-1, -2));
+                }
+                label(c, "Backup", 14, TEXT, "sans-serif-medium", 16);
+                label(c, "Share everything (settings, rides, money) as text, and paste it back to restore.", 13, SUBTLE, "sans-serif", 4);
+                button(c, "Share backup", false, 8).setOnClickListener(v -> {
+                    Intent it = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, backupText());
+                    startActivity(Intent.createChooser(it, "Backup"));
+                });
+                button(c, "Restore from backup", false, 8).setOnClickListener(v -> {
+                    final EditText e = new EditText(this);
+                    new AlertDialog.Builder(this).setMessage(L("Paste your backup")).setView(e)
+                        .setNegativeButton(L("Cancel"), null)
+                        .setPositiveButton(L("Restore"), (d, w) -> {
+                            String err = restoreBackup(e.getText().toString());
+                            Toast.makeText(this, err == null ? L("Restored") : L(err), Toast.LENGTH_SHORT).show();
+                            if (err == null) recreate();
+                        }).show();
+                });
+                save[0] = () -> { };
+                break;
+            }
             default: {
                 CheckBox[] boxes = appChecks(c);
                 save[0] = () -> sp.edit().putString("pkgs", pkgsFrom(boxes)).apply();
@@ -1729,6 +2112,8 @@ public class MainActivity extends Activity {
         bottom.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
         nav = new LinearLayout(this);
         nav.setBackgroundColor(SURFACE);
+        nav.setPadding(dp(8), dp(6), dp(8), dp(6));
+        bottom.setElevation(dp(8));
         String[] names = {"Home", "History", "Money", "Settings"};
         int[] icons = {R.drawable.ic_home, R.drawable.ic_history, R.drawable.ic_wallet, R.drawable.ic_settings};
         for (int i = 0; i < 4; i++) {
@@ -1746,13 +2131,16 @@ public class MainActivity extends Activity {
             t.setPadding(0, dp(2), 0, 0);
             item.addView(t, new LinearLayout.LayoutParams(-1, -2));
             item.setOnClickListener(v -> { if (idx == 3) settingsPage = -1; show(idx); });
-            nav.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
+            LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(0, -2, 1);
+            nl.leftMargin = nl.rightMargin = dp(3);
+            nav.addView(item, nl);
         }
         bottom.addView(nav, new LinearLayout.LayoutParams(-1, -2));
         frame.addView(bottom, new LinearLayout.LayoutParams(-1, -2));
         setContentView(frame);
         scheduleSummary(this);
         if (sp.getBoolean("onboarded", false)) show(0); else onboard();
+        askPin();
     }
 
     /** Back goes up one level: settings page to the settings list, any tab to Home, a setup step to the previous one. Only Home exits. */
